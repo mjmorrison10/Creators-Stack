@@ -1,0 +1,40 @@
+name: Refresh arena.ai ranking
+
+# Regenerates public/arena-ranking.json (the ordering for the OpenRouter model
+# picker) from arena.ai's live text leaderboard. Runs weekly, and can be run on
+# demand from the Actions tab via the "Run workflow" button.
+#
+# Ported from recall/, with the path moved to public/ (Vite serves it as a
+# static asset). The legacy "[skip ci]" marker is gone because here a ranking
+# change should reach the live site — though note GitHub does not trigger
+# workflows from GITHUB_TOKEN pushes, so the redeploy rides along with the next
+# real push rather than firing immediately.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 8 * * 1" # Mondays 08:17 UTC
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Regenerate arena-ranking.json
+        run: node scripts/refresh-leaderboard.mjs
+      - name: Commit if changed
+        run: |
+          if git diff --quiet -- public/arena-ranking.json; then
+            echo "No ranking change."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add public/arena-ranking.json
+            git commit -m "chore: refresh arena.ai ranking"
+            git push
+          fi
