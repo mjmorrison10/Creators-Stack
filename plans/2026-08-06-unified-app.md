@@ -139,9 +139,33 @@ Locked-in decisions:
     carry it into the Drive payload. Verified against the legacy source. Only
     a theme string is involved; it stops when the old apps are retired.
 
-- **Phase 1, remaining (next up):** the `stackdata.js` merge-engine port
-  (`merge.ts`, `tombstones.ts`, `backup.ts`, `drive.ts`, `workspace.ts`) plus
-  the golden-fixture harness that runs the ORIGINAL `stackdata.js` in jsdom
-  and asserts the TypeScript port produces identical JSON. Nothing downstream
-  should be built until those tests are green — every later phase depends on
-  this engine being behaviourally identical.
+- **Phase 1b — merge engine.** Commit `2045eb9`.
+  - Ported `workspace.ts`, `tombstones.ts`, `merge.ts`, `backup.ts` from
+    `stackdata.js` lines 117–500. `drive.ts` deferred to Phase 2 with the
+    other network services.
+  - **Verified by differential testing, not review.** `tests/unit/legacy-harness.ts`
+    loads the original `stackdata.js` into jsdom; `merge-golden.test.ts` runs
+    both engines over the same inputs and requires identical JSON. 12 tests
+    covering RECALL union (more-segments-wins), PULSE snapshot merge +
+    duplicate collapse, HOOKLAB ledger precedence, BLAST per-clip union,
+    tombstone suppression in both its forms, presets, unknown forward-compatible
+    keys, the no-API-keys guarantee, and the workspace hard-block. Plus direct
+    idempotence and fixed-point assertions.
+  - **Mutation-tested the tests.** Deliberately flipped a sort comparator in
+    the port and confirmed the parity suite failed (2 of 12 — exactly the
+    fixtures with enough entries for order to matter), then reverted. A
+    differential test that cannot fail is worthless; this one can.
+  - Fixed the Phase 1a defect: `Workspace.createdAt` is a **number**.
+  - Second intentional deviation: `ensureWorkspace(name)` takes the name as an
+    argument rather than calling `window.prompt` mid-sync. Same id shape, same
+    `"My workspace"` default; the UI asks properly in Phase 2.
+  - `@types/node` added for the harness only (`types: ["vitest/globals","node"]`);
+    no `src/` code imports node APIs. `*.tsbuildinfo` gitignored.
+  - 25 tests green, typecheck clean, build clean.
+
+- **Phase 2 (next up):** shared services — unified `llm/` reconciled from the
+  three drifted copies, `models.ts`, `youtube.ts`, `ffmpeg.ts`, then the
+  Settings section that finally wires the merge engine to a UI (`drive.ts`,
+  backup/restore, workspace-guard modal). Note the merge engine is currently
+  tree-shaken out of the bundle because nothing imports it yet — Phase 2 is
+  where it starts shipping.
