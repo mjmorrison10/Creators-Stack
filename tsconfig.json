@@ -19,7 +19,9 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
-    "types": ["vitest/globals"],
+    // node types are for the test harness only — it reads the legacy
+    // stackdata.js off disk to diff against. No src/ code imports node APIs.
+    "types": ["vitest/globals", "node"],
 
     "baseUrl": ".",
     "paths": { "@/*": ["src/*"] }

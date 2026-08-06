@@ -25,7 +25,12 @@ export interface StackSettings {
 export interface Workspace {
   id: string;
   name: string;
-  createdAt: string;
+  /**
+   * ms epoch, NOT an ISO string — the legacy ensureWorkspace() writes
+   * `createdAt: Date.now()`. Typing it as a string would have shipped a value
+   * the old apps cannot read back.
+   */
+  createdAt: number;
 }
 
 /** Entities that can be deleted, and therefore need tombstones. */
