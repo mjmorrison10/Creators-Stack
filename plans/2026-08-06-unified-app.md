@@ -112,3 +112,36 @@ Locked-in decisions:
     reachable. Downgrading below 7.12 was tried and **reverted** — versions
     6.0.0–7.17.0 carry 14 advisories including XSS, open redirect, and RCE,
     so the older range is strictly worse. Revisit when a fixed 7.x or 8.x ships.
+  - Verified headlessly on a preview server at the real base path: 14 checks
+    covering routing, deep links, unknown-route fallback, asset resolution,
+    and the theme tokens in both colour schemes plus the `data-theme`
+    override. Two failures found and fixed during this: a missing favicon
+    (console 404) and, in the check script itself, a navigation race and an
+    assertion that wrongly assumed a dark runner.
+  - Commit `748caaf`.
+
+- **Phase 1, part 1 — data-layer foundation.** Commit `72a9825`.
+  - `src/data/schemas/` transcribes the exact legacy shapes for all four apps
+    plus the stack backup envelope, preserving the quirks that matter (BLAST
+    ms-epoch vs HOOKLAB ISO timestamps, `blast-theme`'s hyphen, PULSE view
+    state in sessionStorage, reserved `pulse_`/`pulseauto_` ledger ids).
+  - `src/data/keys.ts` pins every persisted name in one place.
+  - `src/data/storage.ts` — storage-as-source-of-truth boundary with
+    cross-tab `storage` events and explicit quota errors.
+  - `src/data/idb.ts` — RECALL library in IndexedDB at the legacy coordinates.
+  - `src/data/stackdata/constants.ts` — exclusion lists ported verbatim with
+    their rationale comments.
+  - 13 unit tests green, including the contract tests that a key rename or a
+    mis-scoped exclusion list would fail.
+  - Cross-version note recorded in `constants.ts`: the new `stack_theme_v1`
+    is SYNC_EXCLUDEd here, but the still-deployed apps predate the key and
+    their `isStackKey` matches it, so a sync run **from an old app** will
+    carry it into the Drive payload. Verified against the legacy source. Only
+    a theme string is involved; it stops when the old apps are retired.
+
+- **Phase 1, remaining (next up):** the `stackdata.js` merge-engine port
+  (`merge.ts`, `tombstones.ts`, `backup.ts`, `drive.ts`, `workspace.ts`) plus
+  the golden-fixture harness that runs the ORIGINAL `stackdata.js` in jsdom
+  and asserts the TypeScript port produces identical JSON. Nothing downstream
+  should be built until those tests are green — every later phase depends on
+  this engine being behaviourally identical.
