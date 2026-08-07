@@ -73,6 +73,15 @@ export interface RecallUiState {
   chipsCollapsed: boolean;
 }
 
+/**
+ * What a candidate matched, and how. Persisted inside `recall_topclips_v1`, so
+ * the shape is a contract with the still-deployed RECALL — it stores this
+ * object, not a summary string.
+ */
+export type TopClipMatch =
+  | { kind: "ledger"; hook: string; patternId: string }
+  | { kind: "pattern"; patternId: string; patternName: string; scaffold: string };
+
 /** A TOP CLIPS candidate. `label` null means it surfaced without a badge. */
 export interface TopClipCandidate {
   srcId: string;
@@ -85,9 +94,9 @@ export interface TopClipCandidate {
   ctxPrev: string;
   ctxNext: string;
   label: "proof" | "ai_proof" | "ai" | null;
-  proofType?: string;
-  match?: string;
-  personalProof?: unknown;
+  proofType?: "ledger" | "pattern" | null;
+  match?: TopClipMatch;
+  personalProof?: boolean;
   grounding?: string;
   reason?: string;
   sim?: number;
