@@ -47,11 +47,17 @@ export type Tombstones = Record<string, number>;
 /** How long a delete keeps suppressing a re-synced item. */
 export const TOMB_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 
-/** `stack_sync_meta_v1` — device-local Drive bookkeeping, never exported. */
+/**
+ * `stack_sync_meta_v1` — device-local Drive bookkeeping, never exported.
+ *
+ * `lastSyncAt` is a ms-epoch number, matching what the legacy engine writes.
+ * The still-deployed apps read this key on the same origin (it decides whether
+ * the Google consent prompt is forced), so the type has to agree with theirs.
+ */
 export interface SyncMeta {
   fileId: string;
   wsId: string;
-  lastSyncAt: string;
+  lastSyncAt: number;
 }
 
 /**
