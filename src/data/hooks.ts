@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { readJSON, subscribe, writeJSON } from "./storage";
-import { readLibrary, writeLibrary } from "./idb";
+import { loadLibrary, writeLibrary } from "./idb";
 import { EMPTY_RECALL_LIBRARY, type RecallLibrary } from "./schemas/recall";
 
 /**
@@ -74,16 +74,18 @@ export function useRecallLibrary(): RecallLibraryState {
   const [loading, setLoading] = useState(true);
 
   const reload = useCallback(async () => {
-    const lib = await readLibrary();
-    setLibrary(lib ?? EMPTY_RECALL_LIBRARY);
+    const { library: lib } = await loadLibrary();
+    setLibrary(lib);
     setLoading(false);
   }, []);
 
+  // loadLibrary, not readLibrary: the first read is also where a pre-IndexedDB
+  // `recall_state_v2` blob gets migrated across.
   useEffect(() => {
     let alive = true;
-    void readLibrary().then((lib) => {
+    void loadLibrary().then(({ library: lib }) => {
       if (!alive) return;
-      setLibrary(lib ?? EMPTY_RECALL_LIBRARY);
+      setLibrary(lib);
       setLoading(false);
     });
     return () => {

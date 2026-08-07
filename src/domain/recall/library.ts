@@ -160,6 +160,16 @@ export function toggleBin(
   return { ...lib, bin: [...lib.bin, item] };
 }
 
+/**
+ * Remove by key. The bin panel has the item but not its index in the source,
+ * and re-deriving the index by splitting the key would break the moment a
+ * source title or id ever contains "@".
+ */
+export function removeBinItem(lib: RecallLibrary, key: string): RecallLibrary {
+  if (!lib.bin.some((b) => b.key === key)) return lib;
+  return { ...lib, bin: lib.bin.filter((b) => b.key !== key) };
+}
+
 export function clearBin(lib: RecallLibrary): RecallLibrary {
   return { ...lib, bin: [] };
 }
