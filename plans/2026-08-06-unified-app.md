@@ -181,8 +181,27 @@ Locked-in decisions:
     A retry test that really slept 4s now uses a server RetryInfo of 0s —
     same path exercised, 72ms instead of 4s.
 
-- **Phase 2, remaining:** `services/llm/gemini.ts` + `provider.ts`
-  (`withGeminiFallback` lives in blast/app.js, not llm.js — it belongs in the
-  provider so every section gets it), `models.ts`, `youtube.ts`, `ffmpeg.ts`,
-  `data/stackdata/drive.ts`, and the Settings UI. The merge engine is still
-  tree-shaken out of the bundle until Settings imports it.
+- **Phase 2, parts 2–5 — services + Settings. COMPLETE.** Commits `b1ee13e`,
+  `975f0c3`, `d7cc16d`, `db29110`.
+  - `llm/gemini.ts` + `llm/provider.ts`: one facade over both providers.
+    `withGeminiFallback` moved out of blast/app.js so every section inherits
+    it, with its trigger kept narrow — a rejected key fails identically on the
+    other provider, so retrying would only spend quota to show the same error.
+  - `models.ts`, `youtube.ts`, `ffmpeg.ts` (lazy; 31MB core never on the
+    critical path), `stackdata/drive.ts`.
+  - `data/hooks.ts`, `components/ui.tsx`, `features/settings/`.
+  - **Third schema drift caught:** `SyncMeta.lastSyncAt` is a ms-epoch number,
+    not an ISO string. The still-deployed apps read that key on this origin to
+    decide whether to force the Google consent prompt.
+  - **Bundle 289kB → 318kB** — the engine now actually ships; everything before
+    this was tree-shaken out.
+  - 90 unit tests green, plus 16 headless checks against data shaped exactly as
+    the legacy apps leave it: adopts the old theme, reads existing keys, and
+    downloads a backup whose envelope, filename and contents match the legacy
+    format (ledger + posts + queue carried, API keys kept as a local backup
+    should, device sync bookkeeping omitted).
+
+- **Phase 3 (next up):** HOOKLAB — `domain/hooklab/patterns.ts` (the pattern
+  bank, mechanisms, historical instances) and `underwrite.ts` (the scoring
+  formula, badges, fatigue), with score-pinning tests, then the GENERATE /
+  LEDGER / BANK views. First because its ledger is read by every other section.
