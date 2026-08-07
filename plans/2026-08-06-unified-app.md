@@ -163,9 +163,26 @@ Locked-in decisions:
     no `src/` code imports node APIs. `*.tsbuildinfo` gitignored.
   - 25 tests green, typecheck clean, build clean.
 
-- **Phase 2 (next up):** shared services — unified `llm/` reconciled from the
-  three drifted copies, `models.ts`, `youtube.ts`, `ffmpeg.ts`, then the
-  Settings section that finally wires the merge engine to a UI (`drive.ts`,
-  backup/restore, workspace-guard modal). Note the merge engine is currently
-  tree-shaken out of the bundle because nothing imports it yet — Phase 2 is
-  where it starts shipping.
+- **Phase 2, part 1 — shared keys + LLM foundation.** Commit `1d190fc`.
+  - `data/stackdata/shared.ts` (shared-store-wins reads, legacy promotion,
+    explicit clear), `services/llm/timeouts.ts`, `services/llm/openrouter.ts`.
+  - The three `llm.js` copies turned out to differ only in wrapper style,
+    comment wording and the `X-Title` value — no semantic drift — so this is a
+    port of blast's ES-module copy with `X-Title: "THE STACK"`.
+  - **Porting defect caught by its own test:** the first draft dropped the rule
+    that non-empty monologue with no JSON in it, when truncated or still
+    mid-thought, is a *burned thinking budget* rather than a truncated answer.
+    The wrong error tells the user to shorten their input, which does not help;
+    the fix is a different model. Restored, along with the original truncation
+    wording.
+  - 18 new tests (43 total), including a stalling-body stub proving the
+    deadline aborts a hung read rather than only a hung header, and an ASCII
+    check on `X-Title` (a non-ISO-8859-1 header value throws at fetch time).
+    A retry test that really slept 4s now uses a server RetryInfo of 0s —
+    same path exercised, 72ms instead of 4s.
+
+- **Phase 2, remaining:** `services/llm/gemini.ts` + `provider.ts`
+  (`withGeminiFallback` lives in blast/app.js, not llm.js — it belongs in the
+  provider so every section gets it), `models.ts`, `youtube.ts`, `ffmpeg.ts`,
+  `data/stackdata/drive.ts`, and the Settings UI. The merge engine is still
+  tree-shaken out of the bundle until Settings imports it.
