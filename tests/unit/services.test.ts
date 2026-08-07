@@ -196,3 +196,21 @@ describe("YouTube", () => {
     await expect(fetchYouTubeStats("id", "key")).rejects.toThrow(/private, deleted, or wrong link/i);
   });
 });
+
+describe("offline slot fill regressions", () => {
+  it("copies $-sequences in the topic literally", async () => {
+    // String replacements interpret $$, $& and $' — "earn $$$" came out mangled
+    // and "$&" re-inserted the placeholder itself.
+    const { offlineFill } = await import("../../src/domain/hooklab/offline");
+    expect(offlineFill("Nobody talks about {topic}.", "earn $$$ in 30 days")).toBe(
+      "Nobody talks about earn $$$ in 30 days.",
+    );
+    expect(offlineFill("Try {topic}.", "$& tricks")).toBe("Try $& tricks.");
+  });
+
+  it("fills the spoken slot from the topic, as the legacy chain did", async () => {
+    const { offlineFill, TOPIC_SLOTS } = await import("../../src/domain/hooklab/offline");
+    expect(TOPIC_SLOTS).toContain("spoken");
+    expect(offlineFill('Say this out loud: "{spoken}"', "my hook")).toContain("my hook");
+  });
+});

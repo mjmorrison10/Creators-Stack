@@ -56,10 +56,16 @@ export function HooklabSection() {
       {tab === "generate" && <GenerateView ledger={state.ledger} onLog={logFromGenerate} />}
       {tab === "ledger" && (
         <LedgerView
-          // Remount when a prefill arrives so the form picks up the new values.
-          key={prefill?.hook ?? "blank"}
           state={state}
+          // No `key` tied to the prefill: LOG OUTCOME only exists on GENERATE,
+          // so this view is always unmounted when a prefill arrives and its
+          // initializer picks the values up. Keying on the hook meant clearing
+          // the prefill remounted the form and wiped the seeded hook.
           prefill={prefill}
+          // LedgerView unmounts whenever another tab is active, so an
+          // uncleared prefill would re-seed the form on every later visit and
+          // invite an accidental duplicate entry. One-shot: consume and clear.
+          onPrefillConsumed={() => setPrefill(null)}
           onLog={logEntry}
           onRemove={removeEntry}
           onImport={importData}

@@ -150,7 +150,9 @@ export function selectPatterns(
   opts: SelectOptions = {},
 ): ScoredPattern[] {
   const preferCore = opts.preferCore !== false;
-  const poolLimit = opts.poolLimit || SELECTION.poolLimit;
+  // ?? not ||, so an explicit poolLimit of 0 means zero rather than silently
+  // falling back to the default.
+  const poolLimit = opts.poolLimit ?? SELECTION.poolLimit;
 
   let allowedFamilies: Record<string, boolean> | null = null;
   if (angleIds.length) {
@@ -220,7 +222,13 @@ export function selectPatterns(
   };
 
   // Four passes, in this order, so the daily drivers lead and depth fills in.
-  for (let i = 0; i < scored.length && (tierCount.core ?? 0) < SELECTION.maxCore; i++) {
+  // The poolLimit guard is an addition to the legacy loop, which could overrun
+  // a caller-supplied limit below 12 because only later passes checked it.
+  for (
+    let i = 0;
+    i < scored.length && (tierCount.core ?? 0) < SELECTION.maxCore && picked.length < poolLimit;
+    i++
+  ) {
     if (scored[i]!.pattern.tier === "core") tryPick(scored[i]!, SELECTION.maxPerFamily, SELECTION.maxCore);
   }
   for (

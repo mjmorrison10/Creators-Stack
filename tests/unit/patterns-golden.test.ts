@@ -46,10 +46,20 @@ describe("pattern bank parity with the original patterns.js", () => {
   });
 
   it("computes tier membership and counts identically", () => {
-    for (const tier of ["core", "text-native", "extended", "historical"] as const) {
+    for (const tier of ["core", "extended", "historical"] as const) {
       expect(port.patternsByTier(tier)).toEqual(legacy.patternsByTier(tier));
     }
     expect(port.countByTier()).toEqual(legacy.countByTier());
+  });
+
+  it("has no pattern on the 'text-native' tier, in either copy", () => {
+    // The source comments describe a text-native GROUP, but it was never a
+    // tier value — those patterns are core/extended with text-only mediums.
+    // A UI chip filtering on tier === "text-native" silently matched nothing.
+    expect(legacy.patternsByTier("text-native")).toEqual([]);
+    expect(port.PATTERNS.some((p) => (p.tier as string) === "text-native")).toBe(false);
+    // The group itself is real, and reachable by medium.
+    expect(port.PATTERNS.filter((p) => !p.mediums.includes("video")).length).toBeGreaterThan(0);
   });
 
   it("maps platforms to mediums identically", () => {

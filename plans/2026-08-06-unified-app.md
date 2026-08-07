@@ -201,7 +201,36 @@ Locked-in decisions:
     format (ledger + posts + queue carried, API keys kept as a local backup
     should, device sync bookkeeping omitted).
 
-- **Phase 3 (next up):** HOOKLAB — `domain/hooklab/patterns.ts` (the pattern
-  bank, mechanisms, historical instances) and `underwrite.ts` (the scoring
-  formula, badges, fatigue), with score-pinning tests, then the GENERATE /
-  LEDGER / BANK views. First because its ledger is read by every other section.
+- **Phase 3 — HOOKLAB. COMPLETE.** Commits `79b50e0`, `3fabd71`, `8a70f41`,
+  `9c2da1a`, plus this review-fix commit.
+  - `patterns.js` turned out to be a real ES module, so the port is proven by
+    importing the original and deep-equalling it entry by entry rather than
+    reviewed by eye. Mutation-checked: one strength flip produced two failures.
+  - `underwrite.ts` and `ledger.ts` are line-by-line ports with their rules
+    pinned as tests — personal evidence outweighs market strength, "proven"
+    requires the user's own ledger, fatigue overrides proven, no-history is
+    never rendered as 0%, insights need n≥3 and always show n.
+  - **One recorded deviation:** comp import requires a non-whitespace hook
+    where legacy accepted any truthy value. Stricter, and consistent with the
+    ledger filter.
+  - **Code review at phase close (`a54a946..9c2da1a`) found 10 defects, all in
+    the new React code — every domain port held.** The differential-test
+    strategy is doing what it was adopted for. All 10 fixed here: one-shot
+    prefill, explicit status tone instead of string-sniffing, literal `$`
+    handling and the `spoken` slot in offline fill, the TEXT-NATIVE chip
+    re-keyed to medium (no pattern ever carried that tier), `poolLimit`
+    honored in the core pass and `0` no longer falling through to 20, the
+    duplicate "General" niche option, clipboard-rejection handling, a shared
+    download helper, and `useHooklab` reading the freshest stored value so two
+    writes in the same tick can't lose one.
+  - **Regression the fixes introduced and caught before commit:** clearing the
+    prefill flipped a `key` that remounted the ledger form, wiping the seeded
+    hook. Found by the browser check, not by unit tests — the form state only
+    exists in the DOM. The key was unnecessary and is gone.
+  - 158 unit tests green, 24 HOOKLAB headless checks green, 6 browser checks
+    covering the fixes that have no unit-testable surface. Bundle 318→390kB.
+
+- **Phase 4 (next up):** RECALL — the largest section. Parsers (SRT/VTT/
+  TurboScribe, 40-word chunking) tested against real samples, library over
+  IndexedDB, search, bin, SRT/shot-list export, AI transcription, TOP CLIPS,
+  and the `recall_state_v2` migration path.

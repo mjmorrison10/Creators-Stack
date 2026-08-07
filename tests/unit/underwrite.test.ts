@@ -280,3 +280,15 @@ describe("insights", () => {
     expect(rows[1]?.total).toBe(6); // both 50%, larger sample first
   });
 });
+
+describe("regressions from the Phase 3 code review", () => {
+  it("honors a poolLimit below the core-pass cap", () => {
+    // The core pass had no poolLimit guard, so a caller asking for 5 got 12.
+    expect(selectPatterns([], "general", "tiktok", [], { poolLimit: 5 })).toHaveLength(5);
+  });
+
+  it("treats poolLimit 0 as zero, not as 'use the default'", () => {
+    // `||` fell through to 20 for any falsy value.
+    expect(selectPatterns([], "general", "tiktok", [], { poolLimit: 0 })).toHaveLength(0);
+  });
+});

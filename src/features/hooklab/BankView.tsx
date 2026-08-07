@@ -5,15 +5,28 @@ import {
   HISTORICAL_INSTANCES,
   MECHANISMS,
   PATTERNS,
-  TIER_LABELS,
   type Tier,
 } from "../../domain/hooklab/patterns";
 
-const TIERS: (Tier | "all")[] = ["all", "core", "text-native", "extended", "historical"];
+/**
+ * Filters, not strictly tiers. The source comments describe a "text-native"
+ * group, but no pattern carries that as a tier — those are core/extended
+ * patterns whose only medium is text. Keying the chip on tier matched nothing,
+ * so it keys on medium, which is what the group actually means.
+ */
+type Filter = Tier | "all" | "text-only";
+
+const FILTERS: { id: Filter; label: string }[] = [
+  { id: "all", label: "ALL" },
+  { id: "core", label: "CORE" },
+  { id: "extended", label: "EXTENDED" },
+  { id: "historical", label: "HISTORICAL" },
+  { id: "text-only", label: "TEXT-NATIVE" },
+];
 
 export function BankView() {
   const [query, setQuery] = useState("");
-  const [tier, setTier] = useState<Tier | "all">("all");
+  const [tier, setTier] = useState<Filter>("all");
   const [mechanism, setMechanism] = useState("all");
 
   const counts = useMemo(() => countByTier(), []);
@@ -21,7 +34,11 @@ export function BankView() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return PATTERNS.filter((p) => {
-      if (tier !== "all" && p.tier !== tier) return false;
+      if (tier === "text-only") {
+        if (p.mediums.includes("video")) return false;
+      } else if (tier !== "all" && p.tier !== tier) {
+        return false;
+      }
       if (mechanism !== "all" && p.mechanism !== mechanism) return false;
       if (!q) return true;
       return (
@@ -56,9 +73,9 @@ export function BankView() {
         </div>
 
         <div className="mb-3 flex flex-wrap gap-2">
-          {TIERS.map((t) => (
-            <button key={t} type="button" onClick={() => setTier(t)} className={chip(tier === t)}>
-              {t === "all" ? "ALL" : (TIER_LABELS[t] ?? t).toUpperCase()}
+          {FILTERS.map((f) => (
+            <button key={f.id} type="button" onClick={() => setTier(f.id)} className={chip(tier === f.id)}>
+              {f.label}
             </button>
           ))}
         </div>

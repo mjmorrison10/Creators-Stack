@@ -1,27 +1,17 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Card, Field, StatusLine, TextInput } from "../../components/ui";
 import { NICHES, PATTERNS, PLATFORMS } from "../../domain/hooklab/patterns";
 import { insightRows, MIN_INSIGHT_SAMPLE } from "../../domain/hooklab/underwrite";
 import { buildExport, isAutoPromoted, EXPORT_FILENAME } from "../../domain/hooklab/ledger";
 import type { HooklabState, LedgerEntry, Outcome } from "../../data/schemas/hooklab";
 import type { LedgerFields } from "../../domain/hooklab/ledger";
+import { downloadJson } from "../../data/download";
 
 const OUTCOME_LABEL: Record<Outcome, { label: string; className: string }> = {
   winner: { label: "WINNER", className: "text-pos" },
   meh: { label: "MEH", className: "text-muted" },
   dead: { label: "DEAD", className: "text-gold" },
 };
-
-function download(obj: unknown, filename: string): void {
-  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(a.href), 0);
-}
 
 /**
  * Win-rate tables. Groups under the sample threshold are omitted by
@@ -88,15 +78,21 @@ const BLANK: FormState = {
   notes: "",
 };
 
+/** Tone travels with the message — sniffing the text for "isn't" mislabelled
+ *  the validation error as success. */
+type Status = { tone: "ok" | "error"; text: string };
+
 export function LedgerView({
   state,
   prefill,
+  onPrefillConsumed,
   onLog,
   onRemove,
   onImport,
 }: {
   state: HooklabState;
   prefill?: { hook: string; patternId: string } | null;
+  onPrefillConsumed?: () => void;
   onLog: (fields: Partial<LedgerFields> & { hook: string }) => void;
   onRemove: (id: string) => void;
   onImport: (data: unknown) => void;
@@ -104,20 +100,27 @@ export function LedgerView({
   const [form, setForm] = useState<FormState>(() =>
     prefill ? { ...BLANK, hook: prefill.hook, patternId: prefill.patternId } : BLANK,
   );
-  const [status, setStatus] = useState<string | null>(null);
+  const [status, setStatus] = useState<Status | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+
+  // Tell the parent the prefill has been used, so revisiting this tab starts blank.
+  useEffect(() => {
+    if (prefill) onPrefillConsumed?.();
+    // Deliberately once per mount: the form owns the values from here on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]): void =>
     setForm((f) => ({ ...f, [k]: v }));
 
   const submit = (): void => {
     if (!form.hook.trim()) {
-      setStatus("Hook text is required.");
+      setStatus({ tone: "error", text: "Hook text is required." });
       return;
     }
     onLog({ ...form, hook: form.hook.trim() });
     setForm(BLANK);
-    setStatus("Logged.");
+    setStatus({ tone: "ok", text: "Logged." });
   };
 
   const doImport = (file: File | undefined): void => {
@@ -126,11 +129,12 @@ export function LedgerView({
     r.onload = () => {
       try {
         onImport(JSON.parse(String(r.result)));
-        setStatus("Imported.");
+        setStatus({ tone: "ok", text: "Imported." });
       } catch {
-        setStatus("That file isn't valid JSON.");
+        setStatus({ tone: "error", text: "That file isn't valid JSON." });
       }
     };
+    r.onerror = () => setStatus({ tone: "error", text: "Couldn't read that file." });
     r.readAsText(file);
   };
 
@@ -188,7 +192,6 @@ export function LedgerView({
               onChange={(e) => set("niche", e.target.value)}
               className={selectCls}
             >
-              <option value="general">General</option>
               {NICHES.map((n) => (
                 <option key={n.id} value={n.id}>
                   {n.label}
@@ -206,7 +209,7 @@ export function LedgerView({
         <Button onClick={submit} variant="primary">
           LOG ENTRY
         </Button>
-        {status && <StatusLine tone={status.includes("isn't") ? "error" : "ok"}>{status}</StatusLine>}
+        {status && <StatusLine tone={status.tone}>{status.text}</StatusLine>}
       </Card>
 
       <Card title="INSIGHTS" hint={`Only groups with ${MIN_INSIGHT_SAMPLE}+ entries are reported, and n is always shown.`}>
@@ -218,7 +221,7 @@ export function LedgerView({
         hint="Newest first. Entries PULSE promoted automatically are marked AUTO."
       >
         <div className="mb-4 flex flex-wrap gap-2">
-          <Button onClick={() => download(buildExport(state), EXPORT_FILENAME)}>EXPORT</Button>
+          <Button onClick={() => downloadJson(buildExport(state), EXPORT_FILENAME)}>EXPORT</Button>
           <Button onClick={() => fileInput.current?.click()}>IMPORT</Button>
           <input
             ref={fileInput}

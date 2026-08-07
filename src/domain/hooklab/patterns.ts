@@ -15,7 +15,12 @@ export interface Mechanism {
   job: string;
 }
 
-export type Tier = "core" | "text-native" | "extended" | "historical";
+/**
+ * Only these three appear in the data. The source comments mention a
+ * "text-native" group, but those patterns are core/extended with text-only
+ * mediums — it was never a tier value, so it is not one here.
+ */
+export type Tier = "core" | "extended" | "historical";
 export type Evidence = "market-observed" | "documented" | "inferred" | string;
 
 /**

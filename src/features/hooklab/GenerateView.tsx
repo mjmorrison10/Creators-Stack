@@ -10,6 +10,7 @@ import {
   type ScoredPattern,
 } from "../../domain/hooklab/underwrite";
 import type { LedgerEntry } from "../../data/schemas/hooklab";
+import { copyText } from "../../data/download";
 
 /**
  * Badge copy. The wording is the product promise: "Proven for you" is only ever
@@ -40,15 +41,17 @@ function HookCard({
   topic: string;
   onLog: (hook: string, patternId: string) => void;
 }) {
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "done" | "failed">("idle");
   const { scored, text, status } = candidate;
   const badge = BADGES[status];
   const gaps = unfilledSlots(text);
 
+  // Copying can genuinely fail — the async Clipboard API needs a secure
+  // context. Say so rather than leaving a button that appears to do nothing.
   const copy = async (): Promise<void> => {
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    const ok = await copyText(text);
+    setCopyState(ok ? "done" : "failed");
+    setTimeout(() => setCopyState("idle"), 2000);
   };
 
   return (
@@ -76,7 +79,9 @@ function HookCard({
       <p className="mt-2 text-xs leading-relaxed text-muted">{evidenceLine(scored, topic)}</p>
 
       <div className="mt-3 flex flex-wrap gap-2">
-        <Button onClick={() => void copy()}>{copied ? "COPIED" : "COPY"}</Button>
+        <Button onClick={() => void copy()}>
+          {copyState === "done" ? "COPIED" : copyState === "failed" ? "COPY FAILED" : "COPY"}
+        </Button>
         <Button onClick={() => onLog(text, scored.pattern.id)}>LOG OUTCOME</Button>
       </div>
     </li>
@@ -123,7 +128,6 @@ export function GenerateView({
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Niche">
             <select value={niche} onChange={(e) => setNiche(e.target.value)} className={selectCls}>
-              <option value="general">General</option>
               {NICHES.map((n) => (
                 <option key={n.id} value={n.id}>
                   {n.label}

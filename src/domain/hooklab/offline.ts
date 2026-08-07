@@ -120,19 +120,25 @@ export const SLOT_FILLS: Record<string, string> = {
   // dead code. Only the effective value is carried over.
 };
 
-/** Slots that take the user's own topic rather than a canned default. */
-export const TOPIC_SLOTS = ["topic", "thing", "claim", "line"] as const;
+/**
+ * Slots that take the user's own topic rather than a canned default.
+ * `spoken` belongs here: the legacy chain filled it with the topic too.
+ */
+export const TOPIC_SLOTS = ["topic", "thing", "claim", "line", "spoken"] as const;
 
 export function offlineFill(scaffold: string, topic?: string): string {
   const t = (topic || "this").trim();
   const short = t.length > MAX_TOPIC_LEN ? `${t.slice(0, MAX_TOPIC_LEN - 3)}…` : t;
 
   let text = scaffold;
+  // Replacement FUNCTIONS, not strings: a string replacement interprets
+  // $$, $& and $' as special sequences, so a topic like "earn $$$ in 30 days"
+  // would come out mangled and "$&" would re-insert the placeholder itself.
   for (const slot of TOPIC_SLOTS) {
-    text = text.replace(new RegExp(`\\{${slot}\\}`, "g"), short);
+    text = text.replace(new RegExp(`\\{${slot}\\}`, "g"), () => short);
   }
   for (const [slot, fill] of Object.entries(SLOT_FILLS)) {
-    text = text.replace(new RegExp(`\\{${slot}\\}`, "g"), fill);
+    text = text.replace(new RegExp(`\\{${slot}\\}`, "g"), () => fill);
   }
   return text;
 }
