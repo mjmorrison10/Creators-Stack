@@ -7,6 +7,7 @@ import { readPresets, setPreset, writePresets } from "../../domain/blast/compose
 import { QUICK_KEY, selectedNames } from "../../domain/blast/queue";
 import { useBlast } from "./useBlast";
 import { PlatformCard } from "./PlatformCard";
+import { SuggestPanel } from "./SuggestPanel";
 
 const meta = SECTIONS[2]!;
 
@@ -149,6 +150,26 @@ export function BlastSection() {
           </ul>
         </Card>
       )}
+
+      <SuggestPanel
+        post={post}
+        names={names}
+        onApply={(suggestions) =>
+          blast.mutate(post.key, (p) => ({
+            ...p,
+            suggestions: { ...p.suggestions, ...suggestions },
+            // Seed each platform's caption with the top option, but never
+            // overwrite one the creator already wrote.
+            captions: Object.fromEntries(
+              Object.entries({ ...p.captions }).concat(
+                Object.entries(suggestions)
+                  .filter(([n]) => !p.captions[n])
+                  .map(([n, opts]) => [n, opts[0] ?? ""]),
+              ),
+            ),
+          }))
+        }
+      />
 
       <Card
         title={`PLATFORMS — ${posted}/${names.length} POSTED`}

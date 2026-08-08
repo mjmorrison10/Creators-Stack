@@ -60,6 +60,28 @@ export const PLATFORM_RULES: Record<string, PlatformRules> = {
 
 export const DEFAULT_RULES: PlatformRules = { limit: 2200, hashtagMax: 10 };
 
+export type LengthPref = "short" | "medium" | "long";
+
+/**
+ * Target caption lengths per platform, in characters, for the Short/Medium/Long
+ * preference. The hard cap always comes from PLATFORM_RULES and is never
+ * exceeded — these only steer the model within it.
+ *
+ * Snapchat stays short at every setting (it is a tiny overlay) and YouTube's
+ * cap dominates because it is the visible Short title.
+ */
+export const LENGTH_TARGETS: Record<string, Record<LengthPref, string>> = {
+  "YouTube Shorts": { short: "under 50", medium: "60-90", long: "90-100" },
+  TikTok: { short: "under 100", medium: "150-300", long: "400-700" },
+  "Instagram Reels": { short: "under 125", medium: "300-600", long: "900-1500" },
+  "Snapchat Spotlight": { short: "under 40", medium: "under 80", long: "under 80" },
+  "Facebook Reels": { short: "under 100", medium: "200-400", long: "700-1200" },
+  X: { short: "under 120", medium: "180-260", long: "260-280" },
+  Threads: { short: "under 120", medium: "200-350", long: "400-500" },
+  LinkedIn: { short: "under 200", medium: "400-800", long: "1200-2000" },
+  Pinterest: { short: "under 120", medium: "200-350", long: "400-500" },
+};
+
 export function rulesFor(name: string): PlatformRules {
   return PLATFORM_RULES[name] ?? DEFAULT_RULES;
 }
