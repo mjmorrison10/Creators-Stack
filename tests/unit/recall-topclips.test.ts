@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import * as port from "../../src/domain/recall/topclips";
 import { PATTERNS } from "../../src/domain/hooklab/patterns";
-import type { RecallLibrary, RecallSource } from "../../src/data/schemas/recall";
+import type { RecallLibrary, RecallSource, TopClipCandidate } from "../../src/data/schemas/recall";
 import type { LedgerEntry } from "../../src/data/schemas/hooklab";
 
 const TOPCLIPS_JS = resolve(import.meta.dirname, "../../../recall/topclips.js");
@@ -374,12 +374,28 @@ describe("the scan", () => {
 });
 
 describe("what actually gets displayed", () => {
-  const cand = (label: "proof" | "ai" | null, i: number) =>
-    ({ key: `k${i}`, label, text: `t${i}` }) as never;
+  const cand = (label: "proof" | "ai" | null, i: number, personalProof = false) =>
+    ({ key: `k${i}`, label, text: `t${i}`, personalProof }) as never;
 
   it("caps at the display limit with no AI cards", () => {
     const all = Array.from({ length: 40 }, (_, i) => cand("proof", i));
-    expect(port.displaySet(all, false)).toHaveLength(port.DISPLAY_CAP);
+    expect(port.displaySet(all)).toHaveLength(port.DISPLAY_CAP);
+  });
+
+  it("shows only labeled candidates", () => {
+    // The unlabeled remainder exists so ranking can order it and so scout mode
+    // has something to backfill with. Showing it by default fills the view with
+    // cards whose own text says they matched nothing.
+    const all = [cand("proof", 0), ...Array.from({ length: 30 }, (_, i) => cand(null, i + 1))];
+    const shown = port.displaySet(all);
+    expect(shown).toHaveLength(1);
+    expect(shown[0]!.label).toBe("proof");
+  });
+
+  it("returns nothing when nothing was labeled, so the honest empty state can fire", () => {
+    // "Nothing scored high enough to recommend" is the product promise. If
+    // unlabeled candidates always padded the list, it could never be shown.
+    expect(port.displaySet(Array.from({ length: 30 }, (_, i) => cand(null, i)))).toEqual([]);
   });
 
   it("stops proofs filling every slot once AI cards exist", () => {
@@ -388,8 +404,118 @@ describe("what actually gets displayed", () => {
       ...Array.from({ length: 30 }, (_, i) => cand("proof", i)),
       ...Array.from({ length: 10 }, (_, i) => cand("ai", 100 + i)),
     ];
-    const shown = port.displaySet(all, true);
+    const shown = port.displaySet(all, { hasAiCards: true });
     expect(shown.filter((c) => c.label === "proof")).toHaveLength(port.PROOF_DISPLAY_MAX);
     expect(shown.some((c) => c.label === "ai")).toBe(true);
+  });
+
+  it("puts personally-proven cards first even when AI cards outrank them", () => {
+    const all = [
+      ...Array.from({ length: 5 }, (_, i) => cand("ai", i)),
+      cand("proof", 99, true),
+    ];
+    expect(port.displaySet(all, { hasAiCards: true })[0]!.personalProof).toBe(true);
+  });
+
+  it("backfills a thin scout result with unlabeled lines, tagged as a scan", () => {
+    // A scouted source may have no proven matches at all. An editor still gets
+    // a usable shot list — but those cards are never dressed as evidence.
+    const all = [cand("proof", 0), ...Array.from({ length: 30 }, (_, i) => cand(null, i + 1))];
+    const shown = port.displaySet(all, { scout: true });
+    expect(shown).toHaveLength(port.SCOUT_FLOOR);
+    expect(shown.filter((c) => c.label === "scan")).toHaveLength(port.SCOUT_FLOOR - 1);
+  });
+
+  it("does not backfill when the scout result is already full", () => {
+    const all = Array.from({ length: 30 }, (_, i) => cand("proof", i));
+    const shown = port.displaySet(all, { scout: true });
+    expect(shown).toHaveLength(port.DISPLAY_CAP);
+    expect(shown.some((c) => c.label === "scan")).toBe(false);
+  });
+});
+
+describe("the provenance a collected clip carries onward", () => {
+  const bank = port.buildBank();
+  const pattern = bank.patterns[0]!;
+
+  const cand = (over: Partial<TopClipCandidate>): TopClipCandidate =>
+    ({
+      srcId: "s1",
+      srcTitle: "A source",
+      idx: 0,
+      t: "0:00:05",
+      sec: 5,
+      text: "the line as spoken",
+      key: "s1@5@0",
+      ctxPrev: "",
+      ctxNext: "",
+      label: null,
+      ...over,
+    }) as TopClipCandidate;
+
+  it("carries the pattern FAMILY, not just the id", () => {
+    // RECALL is the only app that computes the family. PULSE stamps it on an
+    // auto-promoted ledger entry; without it those entries land in "unknown"
+    // and TOP CLIPS can't read them back as personal proof. The loop that
+    // makes "proven for you" mean anything stops closing, silently.
+    const extra = port.handoffExtra(
+      cand({
+        label: "proof",
+        match: {
+          kind: "pattern",
+          patternId: pattern.id,
+          patternName: pattern.name,
+          scaffold: pattern.scaffold,
+        },
+      }),
+      bank,
+    );
+    expect(extra.patternId).toBe(pattern.id);
+    expect(extra.patternName).toBe(pattern.name);
+    expect(extra.patternFamily).toBe(pattern.family);
+    expect(extra.patternFamily).toBeTruthy();
+  });
+
+  it("keeps label in the legacy vocabulary", () => {
+    // The field crosses into blast_queue_v1. Widening a shared field's domain
+    // for a cosmetic distinction is not worth it.
+    for (const label of ["proof", "ai", "ai_proof", "scan"] as const) {
+      expect(port.handoffExtra(cand({ label }), bank).label).toBe(label);
+    }
+  });
+
+  it("carries provenance for a ledger match too, not only a pattern match", () => {
+    const extra = port.handoffExtra(
+      cand({
+        label: "proof",
+        match: { kind: "ledger", hook: "a winning hook", patternId: pattern.id },
+      }),
+      bank,
+    );
+    expect(extra.patternId).toBe(pattern.id);
+    expect(extra.patternFamily).toBe(pattern.family);
+  });
+
+  it("omits fields it cannot fill rather than writing blanks", () => {
+    // A present-but-empty patternId reads downstream as "this clip has a
+    // pattern", which is exactly the bug the family carries the fix for.
+    const extra = port.handoffExtra(cand({}), bank);
+    expect(extra).not.toHaveProperty("patternId");
+    expect(extra).not.toHaveProperty("patternFamily");
+    expect(extra).not.toHaveProperty("label");
+    expect(extra.hookText).toBe("the line as spoken");
+  });
+
+  it("survives a match naming a pattern that is no longer in the bank", () => {
+    const extra = port.handoffExtra(
+      cand({
+        label: "proof",
+        match: { kind: "pattern", patternId: "p_retired", patternName: "Retired", scaffold: "x" },
+      }),
+      bank,
+    );
+    expect(extra.patternId).toBe("p_retired");
+    expect(extra.patternName).toBe("Retired");
+    expect(extra).not.toHaveProperty("patternFamily");
   });
 });

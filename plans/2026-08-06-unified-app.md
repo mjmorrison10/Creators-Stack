@@ -276,7 +276,33 @@ Locked-in decisions:
     doctrine — text read locally, non-media refused, media parsed and saved).
   - Bundle 390 → 431kB.
 
-- **Phase 5 (next up):** BLAST — the queue over `blast_queue_v1`, per-platform
+- **Phase 4 code review** found 3 blockers, 5 findings and 6 nits. All fixed:
+  - **A failed IndexedDB read hung the section forever.** `readLibrary` only
+    guarded `openDb`, so a rejected `get` propagated past an uncaught `.then`
+    and `loading` never cleared — Safari eviction or a corrupt store meant a
+    permanent "Opening your library…". The legacy catches and falls through.
+  - **Library writes could fail silently.** Every caller discarded the save
+    promise, so a quota failure left the UI showing work that never reached
+    disk. Now one `persist` reports once, the legacy localStorage fallback is
+    restored, and the section renders the failure.
+  - **A quota error during a scan wedged every SCAN button** for the session.
+    Guarded, with the flag cleared in `finally`.
+  - **Bin items from TOP CLIPS lost `patternFamily`** — the exact regression
+    the legacy code documents ("which is why early auto entries all landed in
+    family 'unknown'"). `buildBank` already indexed by id and nothing read it.
+    Also restored the legacy `label` vocabulary rather than inventing a value
+    in a field that crosses into `blast_queue_v1`.
+  - **The ledger was read once at mount**, so a hook marked Winner seconds
+    earlier didn't count. Harmless across two separate apps; a real bug when
+    they are two tabs of one.
+  - **`displaySet` showed unlabeled candidates** the legacy filtered out,
+    which also made the honest "nothing scored high enough" empty state
+    unreachable. Now labeled-only with the scout backfill.
+  - CLEAR now confirms; the shot list is back to the legacy text and
+    clipboard delivery; the delete tombstone is written after the save that
+    can fail, not before.
+
+- **Phase 5 (in progress):** BLAST — the queue over `blast_queue_v1`, per-platform
   caption limits, the forward-only status machine, web intents and mobile app
   schemes, AI suggestions carrying hooklab-winner evidence, ffmpeg 9:16 crop,
   and the `blast_session_v1` projection writer wired to every Quick-clip

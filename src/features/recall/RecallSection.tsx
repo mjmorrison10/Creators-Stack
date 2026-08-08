@@ -102,6 +102,10 @@ export function RecallSection() {
     <>
       <SectionHeader name={meta.name} tagline={meta.tagline} accent={meta.accent} />
 
+      {/* A failed read or a write that never landed has to be visible. An
+          optimistic UI showing work that isn't on disk is worse than an error. */}
+      {recall.error && <StatusLine tone="error">{recall.error}</StatusLine>}
+
       <SourceChips
         library={library}
         onToggle={(id) => void recall.toggle(id)}

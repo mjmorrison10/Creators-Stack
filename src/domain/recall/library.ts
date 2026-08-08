@@ -271,12 +271,15 @@ export function buildBinSRT(lib: RecallLibrary): string {
   return lines.join("\n") + "\n";
 }
 
-/** A plain-text shot list — the other thing editors ask for. */
+/**
+ * The shot list, in the exact text the legacy EXPORT button produced. It is
+ * copied to the clipboard rather than downloaded, which is how it was used —
+ * straight into a doc or a message alongside the SRT.
+ */
 export function buildShotList(lib: RecallLibrary): string {
+  const lines = lib.bin.map((b, i) => `${i + 1}. [${b.t}]  ${b.text}   — ${b.srcTitle}`);
   return (
-    lib.bin
-      .map((b, i) => `${i + 1}. [${b.t}] ${b.srcTitle}\n   ${b.text}`)
-      .join("\n\n") + "\n"
+    `CLIP CONCEPT  ·  ${lib.bin.length} moments\n` + "generated in RECALL\n\n" + lines.join("\n")
   );
 }
 
@@ -288,10 +291,6 @@ export function todayStamp(now: Date = new Date()): string {
 
 export function srtFilename(now?: Date): string {
   return `recall-clips-${todayStamp(now)}.srt`;
-}
-
-export function shotListFilename(now?: Date): string {
-  return `recall-shotlist-${todayStamp(now)}.txt`;
 }
 
 export function libraryFilename(now?: Date): string {

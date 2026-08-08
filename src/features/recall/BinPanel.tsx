@@ -1,10 +1,7 @@
-import { Button, Card } from "../../components/ui";
-import {
-  buildBinSRT,
-  buildShotList,
-  shotListFilename,
-  srtFilename,
-} from "../../domain/recall/library";
+import { useState } from "react";
+import { Button, Card, StatusLine } from "../../components/ui";
+import { copyText } from "../../data/download";
+import { buildBinSRT, buildShotList, srtFilename } from "../../domain/recall/library";
 import type { RecallLibrary } from "../../data/schemas/recall";
 
 /** Text downloads — the JSON path lives in data/download.ts. */
@@ -34,6 +31,17 @@ export function BinPanel({
   onClear: () => void;
 }) {
   const n = library.bin.length;
+  const [confirming, setConfirming] = useState(false);
+  const [status, setStatus] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+
+  const copyShotList = async (): Promise<void> => {
+    const ok = await copyText(buildShotList(library));
+    setStatus(
+      ok
+        ? { tone: "ok", text: "Shot list copied to clipboard." }
+        : { tone: "error", text: "Couldn't reach the clipboard. Export the SRT instead." },
+    );
+  };
 
   return (
     <Card
@@ -47,16 +55,31 @@ export function BinPanel({
         >
           EXPORT SRT
         </Button>
-        <Button
-          disabled={!n}
-          onClick={() => downloadText(buildShotList(library), shotListFilename(), "text/plain")}
-        >
-          SHOT LIST
+        <Button disabled={!n} onClick={() => void copyShotList()}>
+          COPY SHOT LIST
         </Button>
-        <Button disabled={!n} onClick={onClear}>
-          CLEAR
-        </Button>
+        {/* Two-step, like removing a source: CLEAR sits next to the export
+            buttons and there is no undo — the bin is a whole search session. */}
+        {confirming ? (
+          <>
+            <Button
+              onClick={() => {
+                setConfirming(false);
+                onClear();
+              }}
+            >
+              CLEAR {n} — SURE?
+            </Button>
+            <Button onClick={() => setConfirming(false)}>KEEP</Button>
+          </>
+        ) : (
+          <Button disabled={!n} onClick={() => setConfirming(true)}>
+            CLEAR
+          </Button>
+        )}
       </div>
+
+      {status && <StatusLine tone={status.tone}>{status.text}</StatusLine>}
 
       {!n ? (
         <p className="text-sm text-muted">

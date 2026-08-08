@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { readJSON, subscribe, writeJSON } from "./storage";
-import { loadLibrary, writeLibrary } from "./idb";
+import { loadLibrary, saveLibrary } from "./idb";
 import { EMPTY_RECALL_LIBRARY, type RecallLibrary } from "./schemas/recall";
 
 /**
@@ -59,8 +59,11 @@ function safeParse<T>(raw: string): T | null {
 export interface RecallLibraryState {
   library: RecallLibrary;
   loading: boolean;
-  save: (next: RecallLibrary) => Promise<void>;
+  /** Resolves false when nothing reached disk. Callers must surface that. */
+  save: (next: RecallLibrary) => Promise<boolean>;
   reload: () => Promise<void>;
+  /** Set when the library could not be opened at all. */
+  error: string | null;
 }
 
 /**
@@ -72,33 +75,49 @@ export interface RecallLibraryState {
 export function useRecallLibrary(): RecallLibraryState {
   const [library, setLibrary] = useState<RecallLibrary>(EMPTY_RECALL_LIBRARY);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
-    const { library: lib } = await loadLibrary();
-    setLibrary(lib);
-    setLoading(false);
+    try {
+      const { library: lib } = await loadLibrary();
+      setLibrary(lib);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not open the library.");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   // loadLibrary, not readLibrary: the first read is also where a pre-IndexedDB
   // `recall_state_v2` blob gets migrated across.
   useEffect(() => {
     let alive = true;
-    void loadLibrary().then(({ library: lib }) => {
-      if (!alive) return;
-      setLibrary(lib);
-      setLoading(false);
-    });
+    // The catch is load-bearing: without it a rejected open leaves `loading`
+    // true forever and the section renders "Opening your library…" for good.
+    void loadLibrary()
+      .then(({ library: lib }) => {
+        if (!alive) return;
+        setLibrary(lib);
+      })
+      .catch((e: unknown) => {
+        if (!alive) return;
+        setError(e instanceof Error ? e.message : "Could not open the library.");
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
     return () => {
       alive = false;
     };
   }, []);
 
-  const save = useCallback(async (next: RecallLibrary) => {
+  const save = useCallback(async (next: RecallLibrary): Promise<boolean> => {
     setLibrary(next); // optimistic: the UI shouldn't wait on a disk write
-    await writeLibrary(next);
+    return saveLibrary(next);
   }, []);
 
-  return { library, loading, save, reload };
+  return { library, loading, save, reload, error };
 }
 
 /** Read a key once without subscribing — for one-shot reads in event handlers. */

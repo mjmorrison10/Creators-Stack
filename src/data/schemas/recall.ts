@@ -93,7 +93,9 @@ export interface TopClipCandidate {
   key: string;
   ctxPrev: string;
   ctxNext: string;
-  label: "proof" | "ai_proof" | "ai" | null;
+  /** "scan" is the scout-mode backfill tag: surfaced for completeness, not
+   *  as evidence. null means it matched nothing and carries no claim. */
+  label: "proof" | "ai_proof" | "ai" | "scan" | null;
   proofType?: "ledger" | "pattern" | null;
   match?: TopClipMatch;
   personalProof?: boolean;

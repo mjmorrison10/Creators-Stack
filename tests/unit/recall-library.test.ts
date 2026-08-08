@@ -274,10 +274,17 @@ describe("SRT export", () => {
     expect(binItemRange(orphaned, lib.bin[0]!)).toEqual({ start: 5, end: 35 });
   });
 
-  it("writes a shot list an editor can read", () => {
+  it("writes the shot list in the exact legacy text", () => {
+    // Copied to the clipboard rather than downloaded, which is how it was used
+    // — straight into a doc or a message alongside the SRT.
     const lib = toggleBin(library(), "s1", 0);
     expect(buildShotList(lib)).toBe(
-      "1. [0:00:05] A source\n   Discipline is just remembering what you want.\n",
+      [
+        "CLIP CONCEPT  ·  1 moments",
+        "generated in RECALL",
+        "",
+        "1. [0:00:05]  Discipline is just remembering what you want.   — A source",
+      ].join("\n"),
     );
   });
 

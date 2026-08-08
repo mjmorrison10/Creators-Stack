@@ -378,12 +378,50 @@ export function scanLibrary(
   return [...head, ...rest].slice(0, Math.max(AI_FEED_CAP, head.length));
 }
 
-/** What the UI shows: the scan, capped, with proofs never crowded out. */
-export function displaySet(candidates: TopClipCandidate[], hasAiCards: boolean): TopClipCandidate[] {
-  if (!hasAiCards) return candidates.slice(0, DISPLAY_CAP);
-  const proofs = candidates.filter((c) => c.label === "proof").slice(0, PROOF_DISPLAY_MAX);
-  const others = candidates.filter((c) => c.label !== "proof");
-  return [...proofs, ...others].slice(0, DISPLAY_CAP);
+/** Scout mode backfills to at least this many cards so a shot list is usable. */
+export const SCOUT_FLOOR = 10;
+
+/**
+ * What the UI shows.
+ *
+ * Only LABELED candidates are recommendations. The unlabeled remainder exists
+ * so ranking can order it and so scout mode has something to backfill with —
+ * showing it by default would fill the view with cards whose own text says they
+ * matched nothing, and would make the honest "nothing scored high enough"
+ * empty state unreachable.
+ *
+ * When AI cards are present, proofs are capped so a proof-rich source can't
+ * bury them. Personally-proven cards are then pulled back to the front —
+ * `filter` is stable, so relative order inside each group survives.
+ */
+export function displaySet(
+  candidates: TopClipCandidate[],
+  { hasAiCards = false, scout = false }: { hasAiCards?: boolean; scout?: boolean } = {},
+): TopClipCandidate[] {
+  const labeled = candidates.filter((c) => c.label);
+  const aiCards = labeled.filter((c) => c.label === "ai" || c.label === "ai_proof");
+
+  let shown =
+    hasAiCards && aiCards.length
+      ? [...labeled.filter((c) => c.label === "proof").slice(0, PROOF_DISPLAY_MAX), ...aiCards].slice(
+          0,
+          DISPLAY_CAP,
+        )
+      : labeled.slice(0, DISPLAY_CAP);
+
+  shown = [...shown.filter((c) => c.personalProof), ...shown.filter((c) => !c.personalProof)];
+
+  // A scouted source may have no proven matches at all. Rather than show
+  // nothing, backfill with the most specific unproven lines, tagged so they are
+  // never mistaken for evidence.
+  if (scout && shown.length < SCOUT_FLOOR) {
+    const extra = candidates
+      .filter((c) => !c.label)
+      .slice(0, SCOUT_FLOOR - shown.length)
+      .map((c) => ({ ...c, label: "scan" as const }));
+    shown = [...shown, ...extra];
+  }
+  return shown;
 }
 
 /** A one-line, honest account of why a candidate surfaced. */
@@ -397,4 +435,33 @@ export function groundingFor(c: TopClipCandidate): string {
       : `Carries the ${c.match.patternName} structure.`;
   }
   return "No pattern or ledger match — surfaced on specificity alone.";
+}
+
+/**
+ * The provenance a collected clip carries onward.
+ *
+ * The pattern FAMILY is the part that matters and the part that is easy to
+ * drop: RECALL is the only app that computes it, and PULSE stamps it on an
+ * auto-promoted ledger entry. Without it those entries land in family
+ * "unknown", and TOP CLIPS then can't read them back as personal proof — the
+ * loop that makes "proven for you" mean anything quietly stops closing.
+ *
+ * `label` stays in the legacy vocabulary (proof / ai / ai_proof / scan). It
+ * crosses into blast_queue_v1, and widening a shared field's domain is not
+ * something to do for a cosmetic distinction.
+ */
+export function handoffExtra(c: TopClipCandidate, bank: PatternBank): Record<string, string> {
+  const patternId = c.match?.kind === "pattern" ? c.match.patternId : c.match?.patternId || "";
+  const pattern = patternId ? bank.byId.get(patternId) : undefined;
+  return {
+    ...(c.label ? { label: c.label } : {}),
+    ...(c.text ? { hookText: c.text } : {}),
+    ...(patternId ? { patternId } : {}),
+    ...(c.match?.kind === "pattern" && c.match.patternName
+      ? { patternName: c.match.patternName }
+      : pattern
+        ? { patternName: pattern.name }
+        : {}),
+    ...(pattern?.family ? { patternFamily: pattern.family } : {}),
+  };
 }

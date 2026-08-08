@@ -42,6 +42,13 @@ export async function readLibrary(): Promise<RecallLibrary | null> {
       req.onsuccess = () => resolve((req.result as RecallLibrary) ?? null);
       req.onerror = () => reject(req.error);
     });
+  } catch (e) {
+    // A read that fails must not take the section down with it — Safari
+    // evicting storage, a corrupted store and Firefox private mode all land
+    // here. Returning null lets the caller fall through to the migration path,
+    // which is what the legacy app does.
+    console.warn("recall: IDB read failed", e);
+    return null;
   } finally {
     db.close();
   }
@@ -64,6 +71,34 @@ export async function writeLibrary(lib: RecallLibrary): Promise<void> {
 
 export async function clearLibrary(): Promise<void> {
   await writeLibrary({ ...EMPTY_RECALL_LIBRARY });
+}
+
+/**
+ * Persist the library, falling back to localStorage if IndexedDB refuses.
+ *
+ * Returns whether anything reached disk. Callers MUST use the answer: an
+ * optimistic UI that shows the bin item added while the write silently failed
+ * is how a session's work disappears on the next reload with no warning.
+ *
+ * The fallback mirrors the legacy save(): IndexedDB first, then the old
+ * localStorage key, then give up and say so. Writing the fallback under
+ * `recall_state_v2` is deliberate — that is exactly where `loadLibrary` looks
+ * next, so the data is found again rather than stranded.
+ */
+export async function saveLibrary(lib: RecallLibrary): Promise<boolean> {
+  try {
+    await writeLibrary(lib);
+    return true;
+  } catch (e) {
+    console.warn("recall: IDB write failed, falling back to localStorage", e);
+    try {
+      localStorage.setItem(LEGACY_LIBRARY_KEY, JSON.stringify(lib));
+      return true;
+    } catch (e2) {
+      console.error("recall: save failed", e2);
+      return false;
+    }
+  }
 }
 
 /**

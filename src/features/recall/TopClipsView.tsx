@@ -1,18 +1,18 @@
-import { useMemo, useState } from "react";
-import { Button, Card } from "../../components/ui";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Button, Card, StatusLine } from "../../components/ui";
 import { KEYS } from "../../data/keys";
 import { useStackKey } from "../../data/hooks";
-import { readJSON } from "../../data/storage";
 import { EMPTY_HOOKLAB_STATE, type HooklabState } from "../../data/schemas/hooklab";
 import {
   buildBank,
   displaySet,
+  handoffExtra,
   groundingFor,
   loadWinners,
   scanLibrary,
   type WinnersReason,
 } from "../../domain/recall/topclips";
-import { persistRun, readScans, relTime, writeScans } from "../../domain/recall/scans";
+import { persistRun, readScans, relTime } from "../../domain/recall/scans";
 import type {
   RecallLibrary,
   TopClipCandidate,
@@ -100,33 +100,62 @@ export function TopClipsView({
 }) {
   const [scans, setScans] = useStackKey<TopClipsState>(KEYS.recallTopclips, {});
   const [active, setActive] = useState<string | null>(null);
-  const [scanning, setScanning] = useState(false);
+  const [scanning, setScanning] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const timer = useRef<number | null>(null);
 
-  const winners = useMemo(() => {
-    const state = readJSON<HooklabState>(KEYS.hooklabState, EMPTY_HOOKLAB_STATE);
-    return loadWinners(Array.isArray(state?.ledger) ? state.ledger : null);
-  }, []);
+  // Scanning is synchronous but deferred a tick so the pressed state paints;
+  // leaving the tab mid-scan must not leave a timer pointing at a dead tree.
+  useEffect(
+    () => () => {
+      if (timer.current !== null) clearTimeout(timer.current);
+    },
+    [],
+  );
+
+  // Read through the shared store, not once at mount. HOOKLAB is a tab away
+  // now rather than a separate app, so a hook marked Winner a moment ago must
+  // count in the very next scan — the legacy version was reload-bounded by
+  // construction and the port would otherwise have made it worse.
+  const [hooklab] = useStackKey<HooklabState>(KEYS.hooklabState, EMPTY_HOOKLAB_STATE);
+  const winners = useMemo(
+    () => loadWinners(Array.isArray(hooklab?.ledger) ? hooklab.ledger : null),
+    [hooklab],
+  );
 
   const bank = useMemo(() => buildBank(), []);
   const saved = active ? scans[active] : null;
   const shown = useMemo(
-    () => (saved ? displaySet(saved.candidates, false) : []),
+    // persistRun normalizes every saved run to the scout shape, so the
+    // backfill applies here exactly as it does in the legacy saved view.
+    () => (saved ? displaySet(saved.candidates, { scout: Boolean(saved.meta.scout) }) : []),
     [saved],
   );
 
   const scoutable = library.sources;
 
   const runScan = (srcId: string, title: string): void => {
-    setScanning(true);
-    // Yielding once keeps the button's pressed state visible on a big library;
-    // the scan itself is synchronous.
-    setTimeout(() => {
-      const candidates = scanLibrary(library, bank, winners.winners, { onlySrcId: srcId });
-      const next = persistRun(readScans(), srcId, title, candidates, {});
-      writeScans(next);
-      setScans(next);
-      setActive(srcId);
-      setScanning(false);
+    setScanning(srcId);
+    setError(null);
+    timer.current = window.setTimeout(() => {
+      timer.current = null;
+      try {
+        const candidates = scanLibrary(library, bank, winners.winners, { onlySrcId: srcId });
+        // setScans persists through the shared store; writing separately would
+        // serialize this whole object twice and notify subscribers twice.
+        setScans(persistRun(readScans(), srcId, title, candidates, {}));
+        setActive(srcId);
+      } catch (e) {
+        // A full localStorage throws here. Without this the flag never clears
+        // and every SCAN button in the view stays disabled for the session.
+        setError(
+          e instanceof Error && /quota/i.test(e.message)
+            ? "Couldn't save the scan — storage is full. Remove a saved scan and retry."
+            : "That scan failed. Try again, or reload if it keeps happening.",
+        );
+      } finally {
+        setScanning(null);
+      }
     }, 0);
   };
 
@@ -135,6 +164,8 @@ export function TopClipsView({
       title="TOP CLIPS"
       hint="What your library already contains that has evidence behind it."
     >
+      {error && <StatusLine tone="error">{error}</StatusLine>}
+
       {winners.reason !== "ok" && (
         <p className="mb-4 rounded-lg border border-edge bg-surface2 p-3 text-sm text-muted">
           {NUDGE[winners.reason]}
@@ -169,9 +200,9 @@ export function TopClipsView({
                   <Button
                     onClick={() => runScan(s.id, s.title)}
                     variant={scan ? undefined : "primary"}
-                    disabled={scanning}
+                    disabled={scanning !== null}
                   >
-                    {scanning ? "SCANNING…" : scan ? "RESCAN" : "SCAN"}
+                    {scanning === s.id ? "SCANNING…" : scan ? "RESCAN" : "SCAN"}
                   </Button>
                 </span>
               </li>
@@ -198,19 +229,7 @@ export function TopClipsView({
                   key={c.key}
                   c={c}
                   inBin={isInBin(c.key)}
-                  onCollect={() =>
-                    onCollect(
-                      c.srcId,
-                      c.idx,
-                      c.match?.kind === "pattern"
-                        ? {
-                            patternId: c.match.patternId,
-                            patternName: c.match.patternName,
-                            label: c.personalProof ? "proven-for-you" : "proof",
-                          }
-                        : undefined,
-                    )
-                  }
+                  onCollect={() => onCollect(c.srcId, c.idx, handoffExtra(c, bank))}
                 />
               ))}
             </ul>
