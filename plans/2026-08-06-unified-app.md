@@ -655,3 +655,31 @@ Locked-in decisions:
     The guard now goes last.
   - 748 unit tests, 17 e2e specs (~300 assertions) green; typecheck and build
     clean. The scratchpad copies are retired: one source of truth.
+
+- **Phase 9b — making CI actually pass on a fresh runner.** The Phase 9 audit
+  caught what local green had hidden: ci.yml run 1 died in 28 seconds with
+  `ENOENT /home/runner/work/Creators-Stack/recall/topclips.js`, before a
+  single test executed — so the e2e step had still never run on a runner at
+  all.
+  - Fifteen unit test files read the ORIGINAL apps off disk and diff the
+    ports against them, resolving `../../../<app>/…` — siblings of the
+    workspace. Locally those siblings are just there; a fresh runner checks
+    out only this repo. It is the scratchpad lesson one level deeper:
+    "reproducible from a clone" has to mean a clone of everything the tests
+    actually READ, not just the code they test.
+  - Both workflows now shallow-clone `recall`, `Hooklabs`, `blast` and
+    `pulse` as siblings right after checkout. **Cloned, not vendored,** on
+    purpose: a copy checked into this repo would drift from what is deployed,
+    and a differential against a stale copy proves nothing — it would keep
+    passing while the thing it claims to match moved. Default branch for the
+    same reason: deployed IS main. `actions/checkout` cannot write outside
+    the workspace, so these are plain `git clone`s.
+  - Verified before pushing rather than after: a shallow clone of each repo
+    provides every one of the seven files the tests resolve, and all four are
+    byte-identical to the local copies the suite was developed against — so
+    CI diffs the same sources, and a green run means the same thing a green
+    local run does.
+    CI run 2 is GREEN end to end on the runner: clone 3s, typecheck, 748
+    unit tests (differentials included) 8s, chromium install 37s, **17 e2e
+    specs 32s**. Phase 9 is only now actually done — locally green had been
+    hiding a workflow that could never have passed.
