@@ -730,3 +730,21 @@ Locked-in decisions:
 
   748 unit tests, **23 e2e specs**, typecheck and build green; precache 7
   entries, no vendor asset among them.
+
+- **Phase 10 — deploy.** `deploy.yml` and `refresh-leaderboard.yml` were built
+  ahead of schedule in earlier phases; deploy.yml gained the e2e step in
+  Phase 9 and the legacy clones in 9b. CI is green on the branch for both
+  Phase 8 and Phase 9b runs (typecheck, 748 unit tests, 23 e2e specs).
+  - **PR #1 opened** — one PR for the whole arc, 51 commits, as the master
+    plan specified.
+  - **BLOCKED ON THE USER, and deliberately not worked around:** GitHub Pages
+    Source must be set to **GitHub Actions** (Settings → Pages) before merge,
+    or `configure-pages`/`deploy-pages` fail. This is a repo setting no
+    workflow can flip for itself.
+  - **Not merged.** Merging deploys to production, which is the one
+    hard-to-reverse outward-facing step in this plan; it waits for an
+    explicit go-ahead rather than riding on the plan approval.
+  - Remaining after merge: poll the live URL with a cache-buster until the
+    new bundle is live, same-device check that existing data appears and that
+    a legacy app still reads post-mutation storage, then the Fable final
+    audit against the data-compatibility checklist.
