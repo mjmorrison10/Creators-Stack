@@ -19,11 +19,19 @@ import { SourceChips } from "./SourceChips";
 import { SearchResults } from "./SearchResults";
 import { BinPanel } from "./BinPanel";
 import { AddSourceModal } from "./AddSourceModal";
+import { TopClipsView } from "./TopClipsView";
 import type { RecallLibraryExport } from "../../data/schemas/recall";
 
 const meta = SECTIONS[0]!;
 
 type Status = { tone: "ok" | "error"; text: string };
+
+type Tab = "search" | "topclips";
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "search", label: "SEARCH" },
+  { id: "topclips", label: "TOP CLIPS" },
+];
 
 export function RecallSection() {
   const recall = useRecall();
@@ -31,6 +39,7 @@ export function RecallSection() {
 
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
+  const [tab, setTab] = useState<Tab>("search");
   const [status, setStatus] = useState<Status | null>(null);
   const [pending, setPending] = useState<RecallLibraryExport | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -101,6 +110,34 @@ export function RecallSection() {
         onAdd={() => setAdding(true)}
       />
 
+      <div role="tablist" aria-label="RECALL views" className="mb-5 flex flex-wrap gap-2">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => setTab(t.id)}
+            className={`rounded-lg border px-3 py-2 font-mono text-[11px] font-bold tracking-[0.08em] transition ${
+              tab === t.id
+                ? "border-recall bg-surface2 text-recall"
+                : "border-edge text-muted hover:text-ink"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "topclips" && (
+        <TopClipsView
+          library={library}
+          isInBin={(key) => binHas(library, key)}
+          onCollect={(srcId, idx, extra) => void recall.toggleClip(srcId, idx, extra)}
+        />
+      )}
+
+      {tab === "search" && (
+      <>
       <div className="mb-3">
         <label htmlFor="recall-q" className="sr-only">
           Search every transcript
@@ -139,6 +176,8 @@ export function RecallSection() {
           onTry={setQuery}
         />
       </div>
+      </>
+      )}
 
       <BinPanel
         library={library}

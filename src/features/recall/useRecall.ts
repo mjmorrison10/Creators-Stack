@@ -15,6 +15,7 @@ import {
   type ImportResult,
 } from "../../domain/recall/library";
 import { parse, uid } from "../../domain/recall/parse";
+import { dropScan, readScans, renameScan, writeScans } from "../../domain/recall/scans";
 import type { RecallLibraryExport, RecallSource } from "../../data/schemas/recall";
 
 /**
@@ -46,13 +47,21 @@ export function useRecall() {
   const deleteSource = useCallback(
     async (id: string) => {
       tombstone("recallSource", id);
+      // The saved scan goes too, or TOP CLIPS keeps recommending clips from a
+      // source that is no longer in the library.
+      writeScans(dropScan(readScans(), id));
       await save(removeSource(library, id));
     },
     [library, save],
   );
 
   const rename = useCallback(
-    (id: string, name: string) => save(renameSource(library, id, name)),
+    (id: string, name: string) => {
+      // The title is denormalized onto bin items and saved scans alike.
+      const trimmed = name.trim();
+      if (trimmed) writeScans(renameScan(readScans(), id, trimmed));
+      return save(renameSource(library, id, name));
+    },
     [library, save],
   );
 
