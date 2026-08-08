@@ -400,9 +400,54 @@ Locked-in decisions:
     nothing was broken, and its tests landed immediately after — but that is
     twice now, and `git add -A` is the cause both times.
 
-- **Phase 6 remaining:** the boot healers (`migrateClipIds`,
-  `healImportTwins`), YouTube auto-stats, sparklines and views/hr, the
-  by-clip and by-platform views, and outcome → ledger write. Then
-  `/code-review` at the phase boundary.
+- **Phase 6 part 4c — the import differential (`ffaf539`): DONE.** The Fable
+  audit's finding: `importClipRecord` had 29 behavior tests but, unlike the
+  promotion block, was never sliced and diffed. 27 fixtures now run through
+  both engines with the whole posts array and counter set diffed rather than
+  spot-asserted. Mutation testing found a real gap the corpus missed TWICE:
+  removing `captionHook`'s 300-char cap survives, because `makePost` slices
+  twice and cannot observe it. The cap is load-bearing in exactly one place —
+  `enrichPost` COMPARES the capped output to the stored hook, and an uncapped
+  comparison never matches, so enrichment silently stops replacing a
+  caption-derived fallback with a real hook.
 
-- 521 unit tests, 12 headless suites green. Bundle 467kB.
+- **Phase 6 part 4a — healers + snapshot math (`af9667e`, `d2a001f`): DONE.**
+  Both healers sliced and diffed; ported as pure functions returning new
+  arrays where legacy mutates in place, with tests asserting the input is
+  untouched so the deviation is real rather than nominal, plus idempotence
+  across the whole corpus. Ten mutations on the healers and six on the
+  snapshot math, each failing a distinct test. Preserved quirks:
+  `latestSnap` is largest-elapsed not most-recent; velocity may go negative;
+  `recordSnapshot` does NOT dedupe a same-minute reading (heal is the only
+  deduper, and collapsing here would change what a later merge sees). One
+  test defect fixed test-side — I asserted -400 views/hr as -800, and the
+  differential had already agreed with the port on that case.
+
+- **Phase 6 part 4b — ledger write-back (`0708f57`): DONE.** The stack's one
+  cross-app write. Six tests exist purely to prove neither id namespace can
+  reach the other's rows or a HOOKLAB-native entry. Preserved: `patternName`
+  is not carried; an unknown family stays "unknown"; views stay empty rather
+  than "0"; the notes string keeps its trailing space; a failed write does
+  NOT stamp the post. Retractions are tombstoned, and `autoSame` includes the
+  pattern fields so a late-arriving pattern updates rather than no-ops. Seven
+  mutations, each killed.
+
+- **Phase 6 part 4d — the section (`ac09371`): DONE.** Boot heals before it
+  paints; one ref-backed mutation path so the promotion engine cannot be
+  bypassed; two deliberately different views (by-clip judges, by-platform is
+  the walk-down list where Enter advances to the next VISIBLE input);
+  sessionStorage view state; event-driven YouTube checks filtered to what is
+  actually due. **Recorded deviation:** after a manual add this runs a
+  due-filtered check where legacy sweeps every post in the library
+  (app.js:1235) — same trigger, far less quota. Three test defects found and
+  fixed test-side, the interesting one being that `addInitScript` re-runs on
+  every navigation, so the reload was re-seeding the damaged posts and the
+  healers were correctly merging again; the idempotence check was meaningless
+  until that was guarded.
+
+- **Phase 6 remaining:** `/code-review` at the phase boundary and its fixes.
+
+- **Then Phases 7-10:** cross-section flows + polish, accessibility + PWA,
+  the committed E2E suite, and deploy + live verification.
+
+- 706 unit tests, 13 headless suites green (41 of them new PULSE checks).
