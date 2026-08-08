@@ -230,7 +230,54 @@ Locked-in decisions:
   - 158 unit tests green, 24 HOOKLAB headless checks green, 6 browser checks
     covering the fixes that have no unit-testable surface. Bundle 318→390kB.
 
-- **Phase 4 (next up):** RECALL — the largest section. Parsers (SRT/VTT/
-  TurboScribe, 40-word chunking) tested against real samples, library over
-  IndexedDB, search, bin, SRT/shot-list export, AI transcription, TOP CLIPS,
-  and the `recall_state_v2` migration path.
+- **Phase 4 — RECALL. COMPLETE.** Commits `8117ecc`, `15f66d4`, `173a64b`,
+  `717a5d5`, plus the transcription commit.
+  - **Parser** (`domain/recall/parse.ts`): near-verbatim port. It lives inside
+    app.js's IIFE so it can't be imported like patterns.js could, but it is
+    pure — so the tests slice the original block out by marker and evaluate it,
+    keeping the same differential guarantee. All three input formats covered
+    plus the awkward real-transcript cases.
+  - **Library ops** (`library.ts`): search, bin, source management, SRT and
+    shot-list export, import envelopes. The legacy mutates a shared `state`;
+    these return new objects. The three functions that decide things a user
+    only notices after the damage — clip ranges and import behavior — are
+    diffed against the originals, given a `state` to close over.
+  - **TOP CLIPS** (`topclips.ts`, `scans.ts`): the evidence ladder and the
+    saved-scan store. The 2,567-line vendored pattern snapshot is gone — the
+    unified app imports the live bank, which is the path the shared origin
+    already took.
+  - **Transcription** (`transcribe.ts`): the file-kind gate, which is the
+    load-bearing part. A `.txt` sent as fake audio once burned quota and died
+    on MAX_TOKENS; `accept` is only a picker hint, so the check lives at the
+    one chokepoint both the picker and drag-and-drop pass through.
+  - **`recall_state_v2` migration** in `loadLibrary`, removing the localStorage
+    copy only after the IndexedDB write succeeds.
+  - **Fourth schema drift caught**, this time by typecheck:
+    `TopClipCandidate.match` was typed as a string but the legacy persists an
+    object into `recall_topclips_v1`. Now a discriminated union.
+  - **Deviations recorded, not silent:** no demo transcripts seeded for a
+    first-time user (an honest empty state instead, and ~48kB less bundle);
+    blank pattern provenance omitted from a bin item rather than stored as an
+    empty field.
+  - **Two dead branches documented rather than removed**, so the port stays
+    faithful: a segment can exceed the 40-word cap only as one unbroken
+    sentence, and the "3-word skeletons must match completely" rule has no
+    reachable case (scaffolds under three words are filtered out, and at
+    exactly three every possible containment falls the same side of 0.75 as
+    of 1.0).
+  - 276 unit tests. Mutation-checked at every part; three mutations initially
+    survived and each one exposed a real gap in the suite rather than being
+    waved through — the ledger-similarity threshold in particular, where the
+    only test used an exact match, so a 0.524 boundary case was added. That
+    number is where the "never a fake proof" promise actually lives.
+  - 59 headless checks across three suites: RECALL (migration, search, bin,
+    exports, tombstones), TOP CLIPS (evidence ladder, saved scans, cleanup on
+    delete), and transcription (AI stubbed by network interception per
+    doctrine — text read locally, non-media refused, media parsed and saved).
+  - Bundle 390 → 431kB.
+
+- **Phase 5 (next up):** BLAST — the queue over `blast_queue_v1`, per-platform
+  caption limits, the forward-only status machine, web intents and mobile app
+  schemes, AI suggestions carrying hooklab-winner evidence, ffmpeg 9:16 crop,
+  and the `blast_session_v1` projection writer wired to every Quick-clip
+  mutation through a single writer module.
