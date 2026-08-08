@@ -118,7 +118,7 @@ test("a binned moment becomes a measured breakout in the HOOKLAB ledger", async 
     await page.goto("#/recall");
     await page.getByRole("heading", { name: "RECALL" }).waitFor();
     // The legacy library migrated in, which is the first link in the chain.
-    await page.getByText(/MOMENTS INDEXED/).waitFor();
+    await page.locator("main").getByText(/MOMENTS INDEXED/).waitFor();
 
     await page.getByPlaceholder(/Search every moment/).fill("hardest rep");
     await page.waitForTimeout(400);
@@ -134,7 +134,7 @@ test("a binned moment becomes a measured breakout in the HOOKLAB ledger", async 
 
   await test.step("RECALL → BLAST: send the bin", async () => {
     await page.getByRole("button", { name: "SEND TO BLAST" }).click();
-    await page.getByText(/Queued 1 clip/).waitFor();
+    await page.locator("main").getByText(/Queued 1 clip/).waitFor();
 
     const queue = (await ls("blast_queue_v1")) as { clips: { key: string; text: string }[] };
     const sent = queue.clips.find((c) => c.key !== "quick");

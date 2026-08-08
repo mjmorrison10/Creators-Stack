@@ -58,7 +58,7 @@ test("BLAST suggestions use the ledger, never clobber the creator, and name prov
 
   await test.step("the prompt carries the ledger evidence and the selected platforms", async () => {
     await page.getByRole("button", { name: /SUGGEST FOR 2 PLATFORMS/ }).click();
-    await page.getByText(/Suggestions ready/).waitFor({ timeout: 20000 });
+    await page.locator("main").getByText(/Suggestions ready/).waitFor({ timeout: 20000 });
 
     expect(prompts.length === 1, "calls the provider once").toBeTruthy();
     expect(
@@ -108,7 +108,7 @@ test("BLAST suggestions use the ledger, never clobber the creator, and name prov
     await page.waitForTimeout(250);
     prompts = [];
     await page.getByRole("button", { name: /SUGGEST FOR 2 PLATFORMS/ }).click();
-    await page.getByText(/Suggestions ready/).waitFor({ timeout: 20000 });
+    await page.locator("main").getByText(/Suggestions ready/).waitFor({ timeout: 20000 });
     expect(
       (await session()).captions.X === "Mine, hands off",
       "never overwrites a caption the creator wrote",
@@ -119,7 +119,7 @@ test("BLAST suggestions use the ledger, never clobber the creator, and name prov
     reply = '{"X":["salvaged one"],"TikTok":["cut off he';
     prompts = [];
     await page.getByRole("button", { name: /SUGGEST FOR 2 PLATFORMS/ }).click();
-    await page.getByText(/cut short|Got captions/).waitFor({ timeout: 20000 });
+    await page.locator("main").getByText(/cut short|Got captions/).waitFor({ timeout: 20000 });
     expect(
       (await session()).suggestions.X[0] === "salvaged one",
       "keeps the platforms that arrived in a truncated reply",
@@ -130,7 +130,7 @@ test("BLAST suggestions use the ledger, never clobber the creator, and name prov
   await test.step("A rate limit returned as prose with a 200 must be named for what it is.", async () => {
     reply = "Rate limit exceeded, please try again later.";
     await page.getByRole("button", { name: /SUGGEST FOR 2 PLATFORMS/ }).click();
-    await page.getByText(/rate limited/i).waitFor({ timeout: 20000 });
+    await page.locator("main").getByText(/rate limited/i).waitFor({ timeout: 20000 });
     expect(
       (await body()).toLowerCase().includes("rate limited"),
       "names a prose rate-limit reply as a rate limit",

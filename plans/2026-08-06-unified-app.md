@@ -683,3 +683,50 @@ Locked-in decisions:
     unit tests (differentials included) 8s, chromium install 37s, **17 e2e
     specs 32s**. Phase 9 is only now actually done — locally green had been
     hiding a workflow that could never have passed.
+
+- **Phase 8 — accessibility + PWA.** Landed AFTER Phase 9 by design, so it is
+  the first phase in this project with a committed regression net under it.
+  That paid off within the hour: three of its defects were caught by the new
+  e2e specs, not by reading the code.
+
+  **PWA.** `VitePWA` with `globIgnores: ["**/vendor/**"]` — precaching the
+  ~31MB ffmpeg core would make every install download the crop engine whether
+  or not the creator ever crops, on a phone, on cellular, and would defeat
+  CropPanel's lazy-load contract silently, because the worker fetches behind
+  the back of the spec that asserts no vendor request on load. The manifest is
+  ported from `recall/manifest.json` and rebased to the project scope. Vite
+  does correctly rebase the absolute `/icons/` hrefs (the plan said verify
+  rather than assume — verified, nothing to fix).
+
+  **Accessibility.** A shared `Tabs`/`TabPanel` replaces two hand-rolled
+  strips that had `role="tab"` with no tabpanel and no arrow keys — worse
+  than plain buttons, because a screen reader announces "tab, 1 of 3" and the
+  arrows it just promised do nothing. Now roving tabindex, arrows with wrap,
+  Home/End, and `aria-controls` only on the SELECTED tab (inactive panels are
+  unmounted, so pointing at them would be a dangling reference). Modal gained
+  a focus trap, focus restoration and backdrop-close. Skip link, boot-mounted
+  live regions, and `prefers-reduced-motion`.
+
+  **Defects the new specs caught, all in the wiring layer as usual:**
+  - The skip link written the ordinary way (`href="#main"`) **hijacks the
+    hash router** — it would send the creator from `#/pulse` to the
+    unknown-route fallback. It is a button that moves focus instead.
+  - Focus restoration on modal close was **silently undone**: the dialog
+    unmounts on mousedown, then the browser delivers the click and moves
+    focus to whatever was under the cursor, landing on `<body>`. Deferred a
+    tick.
+  - `StatusLine`'s `role="status"`/`role="alert"` **never announced
+    anything**, because the element always mounted together with its text.
+    The role is gone; text now goes to regions that were in the accessibility
+    tree from boot. Errors go to the assertive one — justified only because
+    continuing after a failure wastes the creator's time.
+
+  **Ripple worth recording:** the live region mirrors every status string and
+  sits outside `<main>`, so unscoped `getByText` began matching twice across
+  eight specs. Those queries are now scoped to `main`, which is what they
+  always meant — they assert the visible status line, not the announcement.
+  The one spec that asserted `role="alert"` now asserts the visual tone AND
+  the assertive announcement, which is strictly more than it checked before.
+
+  748 unit tests, **23 e2e specs**, typecheck and build green; precache 7
+  entries, no vendor asset among them.

@@ -34,7 +34,7 @@ test("HOOKLAB underwrites, logs and banks against a legacy-shaped ledger", async
   await test.step("GENERATE: offline underwriting over the real pattern bank", async () => {
     await page.getByPlaceholder("e.g. why most hooks fail").fill("why most hooks fail");
     await page.getByRole("button", { name: "UNDERWRITE HOOKS" }).click();
-    await page.getByText(/RESULTS —/).waitFor();
+    await page.locator("main").getByText(/RESULTS —/).waitFor();
 
     const cards = page.locator("li").filter({ has: page.getByRole("button", { name: "LOG OUTCOME" }) });
     const n = await cards.count();
@@ -72,7 +72,7 @@ test("HOOKLAB underwrites, logs and banks against a legacy-shaped ledger", async
 
   await test.step("LEDGER", async () => {
     await page.getByRole("tab", { name: /LEDGER/ }).click();
-    await page.getByText("LOG AN OUTCOME").waitFor();
+    await page.locator("main").getByText("LOG AN OUTCOME").waitFor();
 
     const ledgerBody = (await page.locator("main").textContent()) ?? "";
     expect(ledgerBody.includes("Nobody talks about this"), "renders existing entries").toBeTruthy();
@@ -88,7 +88,7 @@ test("HOOKLAB underwrites, logs and banks against a legacy-shaped ledger", async
     // Log an entry and confirm it lands in the legacy shape.
     await page.getByPlaceholder("The opening line you used").fill("A brand new hook");
     await page.getByRole("button", { name: "LOG ENTRY" }).click();
-    await page.getByText("Logged.").waitFor();
+    await page.locator("main").getByText("Logged.").waitFor();
 
     const stored = JSON.parse((await page.evaluate(() => localStorage.getItem("hooklab_state_v1")))!);
     expect(stored.ledger.length === 5, "writes to the legacy key with 5 entries").toBeTruthy();
@@ -133,14 +133,14 @@ test("HOOKLAB underwrites, logs and banks against a legacy-shaped ledger", async
 
   await test.step("BANK", async () => {
     await page.getByRole("tab", { name: "BANK" }).click();
-    await page.getByText(/PATTERN BANK —/).waitFor();
+    await page.locator("main").getByText(/PATTERN BANK —/).waitFor();
     const bank = (await page.locator("main").textContent()) ?? "";
     expect(/PATTERN BANK — \d{2,}/.test(bank), "bank lists the full pattern set").toBeTruthy();
     expect(/HISTORICAL EVIDENCE — 12/.test(bank), "shows historical evidence").toBeTruthy();
 
     await page.getByPlaceholder("Search patterns…").fill("curiosity");
     await page.waitForTimeout(150);
-    const shown = (await page.getByText(/^SHOWING \d+$/).textContent()) ?? "";
+    const shown = (await page.locator("main").getByText(/^SHOWING \d+$/).textContent()) ?? "";
     expect(/SHOWING [1-9]/.test(shown), `search narrows the list (${shown.trim()})`).toBeTruthy();
   });
 

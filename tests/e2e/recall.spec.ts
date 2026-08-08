@@ -72,7 +72,7 @@ test("RECALL migrates, searches, collects, exports, and deletes", async ({ page 
 
   // --- migration: the pre-IDB blob must move into IndexedDB and be cleared ---
   await test.step("migration: the pre-IDB blob must move into IndexedDB and be cleared", async () => {
-    await page.getByText(/MOMENTS INDEXED/).waitFor();
+    await page.locator("main").getByText(/MOMENTS INDEXED/).waitFor();
     expect(
       (await body()).includes("5"),
       "migrates the legacy library and indexes every moment",

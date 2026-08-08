@@ -97,7 +97,7 @@ test("RECALL transcribes media through the stubbed provider and parses it", asyn
       mimeType: "audio/mpeg",
       buffer: Buffer.from("fake audio bytes"),
     });
-    await page.getByText(/MOMENTS$/).waitFor({ timeout: 20000 });
+    await page.locator("main").getByText(/MOMENTS$/).waitFor({ timeout: 20000 });
     expect(generateCalls === 1, "calls the provider exactly once for the media file").toBeTruthy();
     expect(
       sawPrompt.includes("[HH:MM:SS]") && sawPrompt.includes("VERBATIM"),

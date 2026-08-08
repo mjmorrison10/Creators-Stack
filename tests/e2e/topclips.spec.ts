@@ -63,7 +63,7 @@ test("TOP CLIPS ranks on evidence, saves the scan, and carries provenance", asyn
   await page.goto("#/recall", { waitUntil: "networkidle" });
   await page.getByRole("heading", { name: "RECALL" }).waitFor();
   await page.getByRole("tab", { name: "TOP CLIPS" }).click();
-  await page.getByText("NOT SCANNED").waitFor();
+  await page.locator("main").getByText("NOT SCANNED").waitFor();
 
   const body = () => page.locator("main").textContent().then((t) => t ?? "");
 
@@ -74,7 +74,7 @@ test("TOP CLIPS ranks on evidence, saves the scan, and carries provenance", asyn
     ).toBeTruthy();
 
     await page.getByRole("button", { name: "SCAN" }).click();
-    await page.getByText(/SHOWING \d+ OF/).waitFor();
+    await page.locator("main").getByText(/SHOWING \d+ OF/).waitFor();
 
     const shown = await body();
     expect(shown.includes("PROVEN FOR YOU"), "promotes the reused winner as personally proven").toBeTruthy();
@@ -130,7 +130,7 @@ test("TOP CLIPS ranks on evidence, saves the scan, and carries provenance", asyn
   // --- collecting a recommended clip carries provenance into the bin ---
   await test.step("collecting a recommended clip carries provenance into the bin", async () => {
     await page.getByRole("button", { name: "VIEW" }).click();
-    await page.getByText(/SHOWING \d+ OF/).waitFor();
+    await page.locator("main").getByText(/SHOWING \d+ OF/).waitFor();
     await page.locator("li").filter({ hasText: "broLilly" }).getByRole("button", { name: "+ BIN" }).click();
     await page.waitForTimeout(250);
 

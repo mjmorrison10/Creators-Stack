@@ -269,7 +269,7 @@ test("data the unified app writes stays readable by the still-deployed legacy ap
   await test.step("RECALL: bin a moment", async () => {
     await page.goto("#/recall");
     await page.getByRole("heading", { name: "RECALL" }).waitFor();
-    await page.getByText(/MOMENTS INDEXED/).waitFor();
+    await page.locator("main").getByText(/MOMENTS INDEXED/).waitFor();
     await page.getByPlaceholder(/Search every moment/).fill("boring superpower");
     await page.waitForTimeout(400);
     await page.getByRole("button", { name: "+ BIN" }).first().click();
@@ -289,10 +289,10 @@ test("data the unified app writes stays readable by the still-deployed legacy ap
     await page.getByRole("heading", { name: "HOOKLAB" }).waitFor();
     await page.getByRole("tab", { name: /LEDGER/ }).click();
     await page.waitForTimeout(300);
-    await page.getByText("LOG AN OUTCOME").waitFor();
+    await page.locator("main").getByText("LOG AN OUTCOME").waitFor();
     await page.getByPlaceholder("The opening line you used").fill("a hook logged by the unified app");
     await page.getByRole("button", { name: "LOG ENTRY" }).click();
-    await page.getByText("Logged.").waitFor();
+    await page.locator("main").getByText("Logged.").waitFor();
   });
 
   await test.step("PULSE: record a reading", async () => {

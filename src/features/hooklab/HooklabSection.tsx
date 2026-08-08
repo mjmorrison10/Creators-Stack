@@ -5,6 +5,7 @@ import { useHooklab } from "./useHooklab";
 import { GenerateView } from "./GenerateView";
 import { LedgerView } from "./LedgerView";
 import { BankView } from "./BankView";
+import { Tabs, TabPanel } from "../../components/Tabs";
 
 const meta = SECTIONS[1]!;
 
@@ -32,26 +33,17 @@ export function HooklabSection() {
     <>
       <SectionHeader name={meta.name} tagline={meta.tagline} accent={meta.accent} />
 
-      <div role="tablist" aria-label="HookLab views" className="mb-5 flex flex-wrap gap-2">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            role="tab"
-            aria-selected={tab === t.id}
-            onClick={() => setTab(t.id)}
-            className={`rounded-lg border px-3 py-2 font-mono text-[11px] font-bold tracking-[0.08em] transition ${
-              tab === t.id
-                ? "border-hooklab bg-surface2 text-hooklab"
-                : "border-edge text-muted hover:text-ink"
-            }`}
-          >
-            {t.label}
-            {t.id === "ledger" && state.ledger.length > 0 && (
-              <span className="ml-1.5 text-faint">{state.ledger.length}</span>
-            )}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        label="HookLab views"
+        tabs={TABS.map((t) =>
+          t.id === "ledger" && state.ledger.length > 0
+            ? { ...t, badge: state.ledger.length }
+            : t,
+        )}
+        active={tab}
+        onChange={setTab}
+        accentClass="border-hooklab text-hooklab"
+      />
 
       {/* GENERATE stays mounted across tab switches. Unmounting it abandoned
           an in-flight AI call — thinking is on by default, so the wait is long
@@ -61,11 +53,20 @@ export function HooklabSection() {
           accessibility tree while preserving its state.
 
           The other two are still conditional: LedgerView's one-shot prefill
-          relies on being remounted to pick it up. */}
-      <div hidden={tab !== "generate"}>
+          relies on being remounted to pick it up. That is also why this panel
+          spells out the tabpanel wiring instead of using TabPanel, which
+          unmounts when inactive. */}
+      <div
+        role="tabpanel"
+        id="panel-HookLab views-generate"
+        aria-labelledby="tab-HookLab views-generate"
+        tabIndex={0}
+        hidden={tab !== "generate"}
+        className="outline-none"
+      >
         <GenerateView ledger={state.ledger} comps={state.comps} onLog={logFromGenerate} />
       </div>
-      {tab === "ledger" && (
+      <TabPanel id="ledger" label="HookLab views" active={tab === "ledger"}>
         <LedgerView
           state={state}
           // No `key` tied to the prefill: LOG OUTCOME only exists on GENERATE,
@@ -81,8 +82,10 @@ export function HooklabSection() {
           onRemove={removeEntry}
           onImport={importData}
         />
-      )}
-      {tab === "bank" && <BankView />}
+      </TabPanel>
+      <TabPanel id="bank" label="HookLab views" active={tab === "bank"}>
+        <BankView />
+      </TabPanel>
     </>
   );
 }

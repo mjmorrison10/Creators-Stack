@@ -73,7 +73,7 @@ test("HOOKLAB's AI path drops unearned provenance and backfills honestly", async
     });
 
     await page.getByRole("button", { name: "UNDERWRITE HOOKS" }).click();
-    await page.getByText(/RESULTS —/).waitFor({ timeout: 20000 });
+    await page.locator("main").getByText(/RESULTS —/).waitFor({ timeout: 20000 });
 
     expect(prompt.length > 0, "the provider was actually called").toBeTruthy();
     expect(/Never invent fake statistics/i.test(prompt), "the prompt forbids inventing proof").toBeTruthy();

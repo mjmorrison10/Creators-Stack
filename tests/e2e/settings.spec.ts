@@ -94,7 +94,7 @@ test("Settings adopts legacy state, backs it up and round-trips it", async ({ pa
   });
 
   await test.step("The summary shown before a destructive restore must describe the real file", async () => {
-    const summaryText = await page.locator("text=/Downloaded —/").textContent();
+    const summaryText = await page.locator("main").locator("text=/Downloaded —/").textContent();
     expect(
       /ledger entr/i.test(summaryText ?? "") && /tracked post/i.test(summaryText ?? ""),
       `summary names the real contents (${summaryText?.trim()})`,

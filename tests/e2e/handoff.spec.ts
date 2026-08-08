@@ -34,11 +34,11 @@ test("a binned RECALL clip reaches BLAST intact, once", async ({ page }) => {
 
   await page.goto("#/recall", { waitUntil: "networkidle" });
   await page.getByRole("heading", { name: "RECALL" }).waitFor();
-  await page.getByText(/CLIP BIN — 1/).waitFor();
+  await page.locator("main").getByText(/CLIP BIN — 1/).waitFor();
 
   await test.step("sending the bin queues the clip with its provenance", async () => {
     await page.getByRole("button", { name: "SEND TO BLAST" }).click();
-    await page.getByText(/Queued 1 clip/).waitFor();
+    await page.locator("main").getByText(/Queued 1 clip/).waitFor();
 
     const q1 = await queue();
     const sent = q1.clips.find((c: any) => c.key === "ep41@41@1");
@@ -54,7 +54,7 @@ test("a binned RECALL clip reaches BLAST intact, once", async ({ page }) => {
 
   await test.step("Re-sending must not duplicate.", async () => {
     await page.getByRole("button", { name: "SEND TO BLAST" }).click();
-    await page.getByText(/already queued/).waitFor();
+    await page.locator("main").getByText(/already queued/).waitFor();
     const q2 = await queue();
     expect(
       q2.clips.filter((c: any) => c.key === "ep41@41@1").length === 1,

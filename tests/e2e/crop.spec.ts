@@ -34,14 +34,14 @@ test("the crop panel fetches no ffmpeg engine until a transcode is actually aske
     const toggle = page.getByRole("button", { name: "9:16 CROP", exact: true });
     expect((await toggle.count()) === 1, "the crop toggle is offered").toBeTruthy();
     expect(
-      (await page.getByText("Centre-crops landscape footage").count()) === 0,
+      (await page.locator("main").getByText("Centre-crops landscape footage").count()) === 0,
       "the panel is not mounted before the toggle",
     ).toBeTruthy();
 
     await toggle.click();
     await page.getByRole("heading", { name: "9:16 CROP" }).waitFor();
     expect(
-      (await page.getByText("Centre-crops landscape footage").count()) === 1,
+      (await page.locator("main").getByText("Centre-crops landscape footage").count()) === 1,
       "the panel mounts on toggle",
     ).toBeTruthy();
     expect(
@@ -64,7 +64,7 @@ test("the crop panel fetches no ffmpeg engine until a transcode is actually aske
     });
     await page.waitForTimeout(200);
     expect(
-      (await page.getByText("That file isn't video").count()) === 1,
+      (await page.locator("main").getByText("That file isn't video").count()) === 1,
       "refuses a non-video file",
     ).toBeTruthy();
     expect(await reformat.isDisabled(), "reformat stays disabled after a refused file").toBeTruthy();
@@ -82,7 +82,7 @@ test("the crop panel fetches no ffmpeg engine until a transcode is actually aske
     });
     await page.waitForTimeout(200);
     expect(
-      (await page.getByText("That file isn't video").count()) === 1,
+      (await page.locator("main").getByText("That file isn't video").count()) === 1,
       "refuses an audio file",
     ).toBeTruthy();
   });
@@ -94,9 +94,9 @@ test("the crop panel fetches no ffmpeg engine until a transcode is actually aske
       buffer: Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]),
     });
     await page.waitForTimeout(200);
-    expect((await page.getByText("episode-41.mp4").count()) === 1, "accepts a video file").toBeTruthy();
+    expect((await page.locator("main").getByText("episode-41.mp4").count()) === 1, "accepts a video file").toBeTruthy();
     expect(
-      (await page.getByText("That file isn't video").count()) === 0,
+      (await page.locator("main").getByText("That file isn't video").count()) === 0,
       "clears the earlier error",
     ).toBeTruthy();
     expect(await reformat.isEnabled(), "reformat is enabled once a video is chosen").toBeTruthy();
@@ -110,7 +110,7 @@ test("the crop panel fetches no ffmpeg engine until a transcode is actually aske
     await page.getByRole("button", { name: "HIDE 9:16 CROP" }).click();
     await page.waitForTimeout(200);
     expect(
-      (await page.getByText("Centre-crops landscape footage").count()) === 0,
+      (await page.locator("main").getByText("Centre-crops landscape footage").count()) === 0,
       "the panel unmounts on toggle",
     ).toBeTruthy();
   });

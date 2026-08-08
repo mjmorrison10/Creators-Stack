@@ -1,3 +1,4 @@
+import { announce } from "./LiveRegion";
 import { useEffect, useRef, type ReactNode } from "react";
 
 /** A titled panel. Everything in Settings is one of these. */
@@ -113,18 +114,82 @@ export function Modal({
   actions: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  // Whatever had focus when the modal opened — almost always the button that
+  // opened it. Captured in a ref during render rather than in the effect so
+  // it records the pre-modal element, not whatever the effect's own focus
+  // call left behind.
+  const returnTo = useRef<HTMLElement | null>(
+    typeof document === "undefined" ? null : (document.activeElement as HTMLElement | null),
+  );
 
   useEffect(() => {
-    ref.current?.focus();
+    const node = ref.current;
+    node?.focus();
+
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab" || !node) return;
+
+      // Without a trap, Tab walks straight out of an aria-modal dialog into
+      // the page behind it — the screen reader still says "dialog" while the
+      // keyboard is somewhere else entirely, which is worse than no dialog
+      // semantics at all.
+      const focusable = [
+        ...node.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ].filter((el) => el.offsetParent !== null || el === document.activeElement);
+      if (!focusable.length) {
+        // Nothing to cycle between: keep focus on the dialog itself rather
+        // than letting Tab escape to the page behind.
+        e.preventDefault();
+        node.focus();
+        return;
+      }
+      const first = focusable[0]!;
+      const last = focusable[focusable.length - 1]!;
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || active === node)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
+
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    const restore = returnTo.current;
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      // Focus goes back where it came from. Skipped if the trigger is gone
+      // from the document — a confirm that deletes its own row — because
+      // focusing a detached node silently drops focus to <body>.
+      //
+      // Deferred a tick because closing is often driven by a CLICK: the
+      // dialog unmounts on mousedown, and the browser then delivers mouseup
+      // and click, which moves focus to whatever was clicked. Restoring
+      // synchronously here gets silently overwritten by that — focus ends up
+      // on <body> and the next Tab starts from the top of the document.
+      // Found by the keyboard e2e pass, not by reading this code.
+      if (restore?.isConnected) setTimeout(() => restore.focus(), 0);
+    };
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      // Clicking the backdrop cancels, which is what every dialog on the web
+      // does and what a creator will try first. Guarded on the target being
+      // the backdrop itself so a click that starts inside the panel and drags
+      // out does not close it.
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div
         ref={ref}
         role="dialog"
@@ -141,12 +206,34 @@ export function Modal({
   );
 }
 
-/** Transient status line. Errors persist; successes are allowed to fade. */
+/**
+ * Transient status line. Errors persist; successes are allowed to fade.
+ *
+ * The ARIA role moved OFF this element on purpose. Every caller renders a
+ * StatusLine together with its message, and a live region that arrives with
+ * its own content does not announce — so `role="status"` here was decoration.
+ * The text is instead pushed to the boot-mounted regions in LiveRegion, which
+ * were in the accessibility tree long before the message existed.
+ *
+ * Read from the DOM rather than from props because `children` is a ReactNode:
+ * most call sites interpolate elements (a handoff link, a count) and there is
+ * no honest way to stringify that without duplicating the markup.
+ */
 export function StatusLine({ tone, children }: { tone: "info" | "error" | "ok"; children: ReactNode }) {
   const cls =
     tone === "error" ? "text-gold" : tone === "ok" ? "text-pos" : "text-muted";
+  const ref = useRef<HTMLParagraphElement>(null);
+  const said = useRef("");
+
+  useEffect(() => {
+    const text = ref.current?.textContent?.trim() ?? "";
+    if (!text || text === said.current) return;
+    said.current = text;
+    announce(text, tone === "error" ? "assertive" : "polite");
+  });
+
   return (
-    <p role={tone === "error" ? "alert" : "status"} className={`mt-3 text-sm ${cls}`}>
+    <p ref={ref} className={`mt-3 text-sm ${cls}`}>
       {children}
     </p>
   );

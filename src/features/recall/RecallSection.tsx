@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { SectionHeader } from "../../components/SectionHeader";
+import { Tabs, TabPanel } from "../../components/Tabs";
 import { Button, Card, StatusLine } from "../../components/ui";
 import { SECTIONS } from "../../sections";
 import { downloadJson } from "../../data/download";
@@ -114,34 +115,23 @@ export function RecallSection() {
         onAdd={() => setAdding(true)}
       />
 
-      <div role="tablist" aria-label="RECALL views" className="mb-5 flex flex-wrap gap-2">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            role="tab"
-            aria-selected={tab === t.id}
-            onClick={() => setTab(t.id)}
-            className={`rounded-lg border px-3 py-2 font-mono text-[11px] font-bold tracking-[0.08em] transition ${
-              tab === t.id
-                ? "border-recall bg-surface2 text-recall"
-                : "border-edge text-muted hover:text-ink"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        label="RECALL views"
+        tabs={TABS}
+        active={tab}
+        onChange={setTab}
+        accentClass="border-recall text-recall"
+      />
 
-      {tab === "topclips" && (
+      <TabPanel id="topclips" label="RECALL views" active={tab === "topclips"}>
         <TopClipsView
           library={library}
           isInBin={(key) => binHas(library, key)}
           onCollect={(srcId, idx, extra) => void recall.toggleClip(srcId, idx, extra)}
         />
-      )}
+      </TabPanel>
 
-      {tab === "search" && (
-      <>
+      <TabPanel id="search" label="RECALL views" active={tab === "search"}>
       <div className="mb-3">
         <label htmlFor="recall-q" className="sr-only">
           Search every transcript
@@ -180,8 +170,7 @@ export function RecallSection() {
           onTry={setQuery}
         />
       </div>
-      </>
-      )}
+      </TabPanel>
 
       <BinPanel
         library={library}

@@ -119,3 +119,19 @@
     outline-offset: 2px;
   }
 }
+
+/* Some people get motion sickness or migraines from movement they didn't ask
+   for, and the OS setting is how they say so. The app leans on `transition`
+   across nav, tabs, cards and buttons; honoring the preference means those
+   become instant rather than animated. Not zero — `0.01ms` keeps transition
+   and animation END events firing, so any code waiting on one still runs. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
