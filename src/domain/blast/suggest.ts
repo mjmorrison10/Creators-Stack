@@ -10,6 +10,7 @@
  */
 
 import { KEYS } from "../../data/keys";
+import { scanString, scanValue } from "../json-scan";
 import { readJSON, readRaw, writeRaw } from "../../data/storage";
 import {
   DEFAULT_RULES,
@@ -162,50 +163,12 @@ export function salvageCaptionObject(text: string): CaptionResponse | null {
   const start = t.indexOf("{");
   if (start < 0) return null;
 
-  const scanString = (j: number): number => {
-    if (t[j] !== '"') return -1;
-    j++;
-    while (j < t.length) {
-      const c = t[j];
-      if (c === "\\") {
-        j += 2;
-        continue;
-      }
-      if (c === '"') return j + 1;
-      j++;
-    }
-    return -1;
-  };
-
-  /** End index of a balanced value starting at i, or -1 if it never closes. */
-  const scanValue = (i: number): number => {
-    let depth = 0;
-    let j = i;
-    while (j < t.length) {
-      const c = t[j];
-      if (c === '"') {
-        const end = scanString(j);
-        if (end < 0) return -1;
-        j = end;
-        continue;
-      }
-      if (c === "[" || c === "{") depth++;
-      else if (c === "]" || c === "}") {
-        depth--;
-        if (depth === 0) return j + 1;
-        if (depth < 0) return -1;
-      } else if (depth === 0 && (c === "," || c === "}")) return j;
-      j++;
-    }
-    return -1;
-  };
-
   const out: CaptionResponse = {};
   let i = start + 1;
   while (i < t.length) {
     while (i < t.length && /[\s,]/.test(t[i]!)) i++;
     if (t[i] !== '"') break;
-    const keyEnd = scanString(i);
+    const keyEnd = scanString(t, i);
     if (keyEnd < 0) break;
     let key: string;
     try {
@@ -218,7 +181,7 @@ export function salvageCaptionObject(text: string): CaptionResponse | null {
     if (t[j] !== ":") break;
     j++;
     while (j < t.length && /\s/.test(t[j]!)) j++;
-    const valEnd = scanValue(j);
+    const valEnd = scanValue(t, j);
     if (valEnd < 0) break;
     try {
       out[key] = JSON.parse(t.slice(j, valEnd)) as CaptionOption[];

@@ -27,6 +27,20 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+
+      # The e2e suite runs BEFORE the deploy build, not after: it is the only
+      # thing that exercises the React wiring, and Pages has no staging step to
+      # catch a regression later. `test:e2e` builds and previews its own copy
+      # at the real base path.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
       - run: npm run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

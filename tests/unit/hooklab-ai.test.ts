@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import * as port from "../../src/domain/hooklab/ai";
 import { selectPatterns, type ScoredPattern } from "../../src/domain/hooklab/underwrite";
 import { mediumForPlatform } from "../../src/domain/hooklab/patterns";
+import { shouldRetryAsJson } from "../../src/services/llm/provider";
 import type { CompEntry, LedgerEntry } from "../../src/data/schemas/hooklab";
 import * as legacyPatterns from "../../../Hooklabs/patterns.js";
 
@@ -498,6 +499,59 @@ describe("reading a reply that isn't clean JSON", () => {
 
   it("throws something a human can act on when there is no JSON at all", () => {
     expect(() => port.parseAIReply("I cannot help with that.")).toThrow(/non-JSON/);
+  });
+
+  it("TAGS that failure so the one nudge retry actually fires", () => {
+    // Found by audit: `shouldRetryAsJson` keys on a `nonJson` property, and a
+    // plain Error carries none — so wrapping the call in `withJsonRetry` was
+    // inert for the exact case it exists to handle.
+    let thrown: unknown;
+    try {
+      port.parseAIReply("I cannot help with that.");
+    } catch (e) {
+      thrown = e;
+    }
+    expect(shouldRetryAsJson(thrown)).toBe(true);
+  });
+
+  it("keeps the hooks that arrived when the reply was cut off mid-array", async () => {
+    // HOOKLAB asks for 14 hooks plus 3 CTAs against its own token cap, so a
+    // long reply gets truncated. attachHooks backfills whatever is missing,
+    // which makes discarding the whole reply strictly worse than keeping the
+    // complete objects — this is what `partialOnTruncate` is set FOR.
+    const seed = await runBoth(
+      { topic: "discipline", niche: "fitness", platform: "tiktok", goal: "views" },
+      [],
+      "{}",
+      LEDGER,
+      COMPS,
+    );
+    const ids = seed.selected.slice(0, 3).map((s) => s.pattern.id);
+    const full = JSON.stringify({
+      hooks: ids.map((id, i) => ({ patternId: id, text: `hook ${i}`, grounding: "g" })),
+      ctas: [],
+    });
+    // Cut it mid-way through the third hook object.
+    const truncated = full.slice(0, full.indexOf(`"hook 2"`) + 4);
+
+    const r = port.parseAIReply(truncated);
+    expect(r.hooks).toHaveLength(2);
+    expect(r.hooks!.map((h) => h.patternId)).toEqual(ids.slice(0, 2));
+    // The half-written one is dropped, not guessed at — a partial object has
+    // no trustworthy patternId, and that is the whole provenance contract.
+    expect(r.hooks!.some((h) => h.text === "hook 2")).toBe(false);
+  });
+
+  it("does not mistake a brace inside a hook for structure", () => {
+    const reply =
+      '{"hooks":[{"patternId":"p1","text":"use {topic} literally } here","grounding":"g"},{"patternId":"p2"';
+    const r = port.parseAIReply(reply);
+    expect(r.hooks).toHaveLength(1);
+    expect(r.hooks![0]!.text).toBe("use {topic} literally } here");
+  });
+
+  it("still fails loudly when the truncation left nothing complete", () => {
+    expect(() => port.parseAIReply('{"hooks":[{"patternId":"p1","tex')).toThrow(/non-JSON/);
   });
 });
 

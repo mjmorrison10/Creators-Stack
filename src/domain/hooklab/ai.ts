@@ -35,6 +35,7 @@ import type { CompEntry, LedgerEntry, Medium } from "../../data/schemas/hooklab"
 import { KEYS } from "../../data/keys";
 import { readJSON, readRaw } from "../../data/storage";
 import { readSharedKeys } from "../../data/stackdata/shared";
+import { salvageArrayItems } from "../json-scan";
 
 /**
  * Whether extended thinking is on, shared-store first then the legacy key.
@@ -200,14 +201,45 @@ export interface AIReply {
   ctas?: { id?: string; text?: string }[];
 }
 
-/** Extract the reply, tolerating a model that wrapped its JSON in prose. */
+/**
+ * Thrown when nothing usable could be read out of the reply.
+ *
+ * The `nonJson` tag is what `shouldRetryAsJson` keys on, so this is also what
+ * earns the one nudge retry. Without the tag the retry wrapper was inert for
+ * exactly the case it exists to handle — found by audit.
+ */
+export class NonJsonReplyError extends Error {
+  readonly nonJson = true;
+}
+
+/**
+ * Extract the reply, tolerating a model that wrapped its JSON in prose or ran
+ * out of tokens mid-write.
+ *
+ * The first two steps are the legacy's (`Hooklabs/app.js:690-697`). The third
+ * is a deliberate improvement, and the reason `partialOnTruncate` is set on
+ * the call: HOOKLAB asks for 14 hooks plus 3 CTAs against its own token cap,
+ * so a long reply gets cut off mid-array. `attachHooks` is already built to
+ * backfill whatever is missing, so keeping the hooks that DID arrive is
+ * strictly better than throwing the lot away — but only COMPLETE objects are
+ * kept, because a half-written hook has no trustworthy patternId.
+ */
 export function parseAIReply(raw: string): AIReply {
   try {
     return JSON.parse(raw) as AIReply;
   } catch {
     const m = String(raw).match(/\{[\s\S]*\}/);
-    if (!m) throw new Error("AI returned non-JSON. Try again.");
-    return JSON.parse(m[0]) as AIReply;
+    if (m) {
+      try {
+        return JSON.parse(m[0]) as AIReply;
+      } catch {
+        /* fall through to salvage */
+      }
+    }
+    const hooks = salvageArrayItems(raw, "hooks") as AIHook[];
+    const ctas = salvageArrayItems(raw, "ctas") as AIReply["ctas"];
+    if (hooks.length || ctas?.length) return { hooks, ctas };
+    throw new NonJsonReplyError("AI returned non-JSON. Try again.");
   }
 }
 

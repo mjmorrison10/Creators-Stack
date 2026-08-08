@@ -596,3 +596,62 @@ Locked-in decisions:
     headless check fails without its fix.
   - 744 unit tests, 15 headless suites (297 checks), typecheck and build
     green.
+
+- **Phase 9 — the committed E2E suite.** Brought FORWARD of Phase 8 (user
+  approved): three consecutive reviews found their defects in untested React
+  wiring, and Phase 8's own work — a focus trap, a tablist refactor, a service
+  worker — is more of exactly that layer. Landing the net first means Phase 8
+  is the first phase in this project with a regression net under it.
+
+  - **The audit finding first.** `parseAIReply` threw a plain `Error`, and
+    `shouldRetryAsJson` keys on a tagged `nonJson` property — so wrapping the
+    HOOKLAB call in `withJsonRetry` was inert for the exact case it exists to
+    handle. Likewise `partialOnTruncate` stopped the provider throwing on
+    MAX_TOKENS, but the parser had no salvage step, so the truncated partial
+    was discarded before `attachHooks` could backfill it. Both fixed: a tagged
+    `NonJsonReplyError`, and a brace-scanning salvage that keeps the COMPLETE
+    hook objects out of a cut-off array and drops the half-written one (a
+    partial object has no trustworthy patternId, which is the whole provenance
+    contract). Both mutation-proven.
+  - `src/domain/json-scan.ts` extracts the escape-aware scanners rather than
+    carrying a second copy of that fiddly loop; BLAST's caption salvage now
+    uses them too, and its 17 tests prove the refactor.
+  - `playwright.config.ts`: `tests/e2e`, chromium, ONE port, `webServer`
+    building and previewing at the real base path. That retires the five
+    hand-started preview ports the scratchpad suites each hardcoded.
+  - **All 15 scratchpad suites are now committed specs**, translated 1:1 —
+    every `check()` became an `expect(cond, name)` with its diagnostic
+    preserved, every `page.route` stub and `__seeded` guard kept verbatim.
+    Assertion counts match the originals exactly. Each group was verified at
+    `--repeat-each=10` (150 runs, zero flakes) rather than "passed once".
+  - **Two new specs the plan named and nothing had covered:**
+    - `critical-path.spec.ts` — the whole loop in one run: a moment binned in
+      RECALL, sent to BLAST, captioned, marked posted, imported to PULSE,
+      measured at 30k against a 2k median, landing as a `pulseauto_` entry in
+      HOOKLAB with its evidence stated. Writing it surfaced three things no
+      single-section spec could: a plain bin leaves `hookText` empty (that is
+      TOP CLIPS' field) and PULSE derives the hook from the caption instead;
+      the by-clip group label is the clipKey, not the hook; and clicking the
+      platform toggle blind switched TikTok OFF, sending the post to a
+      platform with n=1, so the run reached the end with nothing promoted and
+      nothing visibly wrong. That last one is the shape of bug this spec
+      exists for.
+    - `coexistence.spec.ts` — seeds legacy-shaped state for all four apps,
+      drives one real mutation per section, then validates every touched key
+      against the shapes the STILL-DEPLOYED apps parse: BLAST's ms-epoch
+      numbers vs HOOKLAB's ISO strings, the 12-field session projection,
+      `blast-theme`'s hyphen left untouched, and the library still in
+      IndexedDB where legacy reads it. Guarded against vacuity — it first
+      proves the mutations landed, because every validator returns "no
+      problems" for an empty collection.
+  - `ci.yml` runs typecheck + unit + e2e on push and PR; `deploy.yml` gains
+    the e2e step BEFORE the build, since Pages has no staging step to catch a
+    regression later. Both upload the Playwright report on failure.
+  - **A seeding lesson worth keeping:** `addInitScript` is serialized and run
+    in the PAGE, so a module-scope const from the test file is undefined
+    there. Setting the `__seeded` guard FIRST then throwing left the guard
+    standing over a half-written seed and every later navigation skipping —
+    the failure surfaced four steps downstream, pointing at the wrong thing.
+    The guard now goes last.
+  - 748 unit tests, 17 e2e specs (~300 assertions) green; typecheck and build
+    clean. The scratchpad copies are retired: one source of truth.
