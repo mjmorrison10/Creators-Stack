@@ -333,9 +333,76 @@ Locked-in decisions:
   - 416 unit tests. Headless: 33 BLAST UI checks, 14 AI checks with the
     provider stubbed by interception, 11 handoff checks. Bundle 433 → 460kB.
 
-- **Phase 5 remaining:** ffmpeg 9:16 crop (lazy, from the vendored core), then
+- **Phase 5 part 7 — 9:16 crop (`5bd8b5a`): DONE.** Fixed two divergences the
+  audit found in the Phase 2 loader, which had no callers so had never run:
+  the missing `-c:v libx264 -preset ultrafast -crf 23` (ffmpeg's own defaults
+  are far slower, and this is wasm in a browser tab), and a hardcoded
+  `in.mp4` where legacy passes the source's real extension. `+faststart`
+  stays as the one deliberate addition. The panel is behind a toggle and
+  unmounts to release the ~31MB core. The argument vector is diffed against
+  the literal `exec()` call in blast/app.js; `cropWith` takes the engine so
+  the write/exec/read sequence runs without wasm. Four mutations each fail a
+  distinct test. 16 headless checks confirm nothing is fetched until asked.
+
+- **Phase 5 part 8 — code review (`ddf08da`): 2 CRITICAL, 3 HIGH, 6 MEDIUM,
+  5 LOW. All fixed.** Every finding was in the WIRING layer — the seam the
+  427 domain tests did not span. Worth recording as a lesson: differential
+  tests proved the pure functions correct and said nothing about whether
+  their results were ever written.
+  - **CRITICAL 1 — the legacy upgrade destroyed the in-flight session.** The
+    migration produced a rescued Quick post in React state only, and the
+    mount effect rebuilt the projection from a SECOND `loadQueue()`, which at
+    that moment still found no queue — so a blank Quick post overwrote
+    `blast_session_v1`, the only remaining copy. Legacy does `savePosts()`
+    then projects from the in-memory clip; now so does this.
+  - **CRITICAL 2 — `writeSessionProjection` threw during render.** Legacy
+    calls a quota failure here non-fatal and catches it. The port let it
+    escape from inside a state updater, so with no error boundary the whole
+    app went white at the moment the shedding machinery was supposed to
+    degrade gracefully.
+  - Both are pinned by a headless suite that drives the real upgrade
+    scenario in a browser. Verified against the previous bundle: 11 of its 15
+    checks fail there, so the test genuinely spans the seam.
+  - **Schema drift caught:** Pinterest suggestions were being flattened to
+    strings, which would have left the still-deployed app's Pin-title field
+    permanently empty. They stay `{title, description}` objects.
+  - **Dead field revived:** `picked` was never written, so every generated
+    option but the first was discarded. The chips exist now; picking one
+    writes the caption, typing your own clears the pick.
+  - Also: stale posting marks carried into a new clip (ported
+    `startFreshPostingSession`), the bin handoff sending the hook as the
+    caption seed, `blast_handoff_v1` declared and never consumed (legacy
+    RECALL still writes it), storage writes inside `setQueue` updaters,
+    `loadQueue` trusting unnormalized clips, and an in-flight
+    `releaseFFmpeg` orphaning a live worker.
+
+- **Phase 6 part 3 — auto-promotion (`924e0eb`): DONE.** Taken first because
+  it is the highest-risk port in the phase: the only place one app writes
+  into another's ledger with no human in the loop, and TOP CLIPS reads those
+  entries back as personal proof. `computeAutoWinners` sliced out of the
+  legacy IIFE and diffed over 14 fixtures. Every gate mutation-tested alone —
+  all twelve fail a distinct test (five constants, `AUTO_HOOK_SIM`, and six
+  logic branches). One fixture was wrong on first run and the differential
+  caught it: 30,000 views on X against a 180 median is a real breakout and
+  proved nothing about the cross-platform gate.
+
+- **Phase 6 parts 1-2 — import + the link-less bug (`866feeb`): DONE.**
+  Queue-wins-over-session, the unscoped quick key vs RECALL-scoped batch
+  keys, the three-tier dedup identity, reversible healing, and enrichment
+  that never overwrites a hand-edited hook. Fixes the legacy data-loss path
+  at `pulse/app.js:1264`, where the backup importer dropped every link-less
+  post — which import-from-blast routinely creates. The legacy loop is
+  reproduced in the test rather than described, so the divergence stays
+  deliberate: it drops both, the port keeps both, and the two agree exactly
+  on posts that do have links. Five mutations each fail a distinct test.
+  - **Process note (repeat of the queue.ts finding):** `import.ts` was swept
+    into `ddf08da` by `git add -A` with no tests. It had no callers, so
+    nothing was broken, and its tests landed immediately after — but that is
+    twice now, and `git add -A` is the cause both times.
+
+- **Phase 6 remaining:** the boot healers (`migrateClipIds`,
+  `healImportTwins`), YouTube auto-stats, sparklines and views/hr, the
+  by-clip and by-platform views, and outcome → ledger write. Then
   `/code-review` at the phase boundary.
 
-- **Phase 6 (next):** PULSE — import-from-blast, by-clip and by-platform views,
-  YouTube auto-stats, outcome → ledger write, auto-promotion with its gates,
-  boot healers, and the link-less-post import bug fix.
+- 521 unit tests, 12 headless suites green. Bundle 467kB.
