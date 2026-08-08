@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button, Card, StatusLine } from "../../components/ui";
+import { HandoffLink } from "../../components/HandoffLink";
 import { copyText } from "../../data/download";
 import { buildBinSRT, buildShotList, srtFilename } from "../../domain/recall/library";
 import { handoffSummary, queueToBlast } from "../../domain/blast/handoff";
@@ -34,7 +35,12 @@ export function BinPanel({
 }) {
   const n = library.bin.length;
   const [confirming, setConfirming] = useState(false);
-  const [status, setStatus] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const [status, setStatus] = useState<{
+    tone: "ok" | "error";
+    text: string;
+    /** Shown alongside the message, so the next step is one click away. */
+    goTo?: "blast";
+  } | null>(null);
 
   /**
    * Send the bin to BLAST's queue.
@@ -68,7 +74,7 @@ export function BinPanel({
     const saved = saveQueue(r.queue);
     setStatus(
       saved.ok
-        ? { tone: "ok", text: `${handoffSummary(r)} — open BLAST to write captions.` }
+        ? { tone: "ok", text: `${handoffSummary(r)}.`, goTo: "blast" as const }
         : { tone: "error", text: "Couldn't queue for BLAST — storage is full." },
     );
   };
@@ -121,7 +127,12 @@ export function BinPanel({
         )}
       </div>
 
-      {status && <StatusLine tone={status.tone}>{status.text}</StatusLine>}
+      {status && (
+        <StatusLine tone={status.tone}>
+          {status.text}
+          {status.goTo && <HandoffLink to={status.goTo} />}
+        </StatusLine>
+      )}
 
       {!n ? (
         <p className="text-sm text-muted">

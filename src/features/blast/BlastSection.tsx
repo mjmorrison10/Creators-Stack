@@ -14,6 +14,7 @@ import {
   startFreshPosting,
   type SuggestionOption,
 } from "../../domain/blast/queue";
+import { HandoffLink } from "../../components/HandoffLink";
 import { useBlast } from "./useBlast";
 import { PlatformCard } from "./PlatformCard";
 import { SuggestPanel } from "./SuggestPanel";
@@ -278,6 +279,13 @@ export function BlastSection() {
       </Card>
 
       <Card title="STATUS" hint="What PULSE will see when you import this session.">
+        {posted > 0 && (
+          <p className="mb-3 text-sm text-muted">
+            {posted} platform{posted === 1 ? "" : "s"} marked posted — import them to start
+            measuring.
+            <HandoffLink to="pulse" />
+          </p>
+        )}
         <ul className="space-y-1.5">
           {names.map((n) => (
             <li key={n} className="flex items-baseline justify-between gap-3 text-sm">

@@ -175,10 +175,33 @@ export function GenerateView({
         </Button>
       </Card>
 
-      {results && (
+      {results === null && (
+        <Card
+          title="NOTHING UNDERWRITTEN YET"
+          hint="HOOKLAB ranks patterns against your own ledger, not against a vibe."
+        >
+          <p className="text-sm text-muted">
+            Describe the topic and hit UNDERWRITE HOOKS. Every result shows the pattern behind it
+            and what your own numbers say about that pattern — a real win rate when you have one,
+            and an honest &ldquo;no history yet&rdquo; when you don&rsquo;t.
+          </p>
+        </Card>
+      )}
+
+      {results !== null && results.length === 0 && (
+        <Card title="NO PATTERNS FIT" hint="Nothing matched, and inventing one would be worse.">
+          <p className="text-sm text-muted">
+            No pattern in the bank fits that platform and angle combination. Widen the angle, or
+            pick a different platform — the bank is medium-filtered, so a text platform and a
+            video-only angle can genuinely leave nothing.
+          </p>
+        </Card>
+      )}
+
+      {results !== null && results.length > 0 && (
         <Card
           title={`RESULTS — ${results.length} RANKED`}
-          hint="Offline underwriting: real patterns, deterministic slot fills. AI drafting arrives with the BLAST section."
+          hint="Offline underwriting: real patterns, deterministic slot fills."
         >
           <ul className="space-y-3">
             {results.map((c, i) => (

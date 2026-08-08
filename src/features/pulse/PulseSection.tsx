@@ -11,6 +11,7 @@ import {
 } from "../../domain/pulse/grouping";
 import { fmtNum, latestSnap, nextDue, relTime, ckLabel } from "../../domain/pulse/snapshots";
 import { ytId } from "../../services/youtube";
+import { HandoffLink } from "../../components/HandoffLink";
 import { PostCard, ViewsInput } from "./PostCard";
 import { AddPostForm } from "./AddPostForm";
 import { usePulse, useExpanded, usePlatformPick } from "./usePulse";
@@ -119,12 +120,20 @@ export function PulseSection() {
           stale banners above the list. */}
       {pulse.notice && (
         <Dismissible onDismiss={pulse.clearNotice}>
-          <StatusLine tone={pulse.notice.tone}>{pulse.notice.text}</StatusLine>
+          <StatusLine tone={pulse.notice.tone}>
+            {pulse.notice.text}
+            {/* Anything that reached the ledger is worth being able to go
+                look at — that is where the evidence is read back. */}
+            {pulse.notice.text.includes("HOOKLAB") && <HandoffLink to="hooklab" />}
+          </StatusLine>
         </Dismissible>
       )}
       {pulse.autoNotice && (
         <Dismissible onDismiss={pulse.clearAutoNotice}>
-          <StatusLine tone="ok">{pulse.autoNotice}</StatusLine>
+          <StatusLine tone="ok">
+            {pulse.autoNotice}
+            <HandoffLink to="hooklab" />
+          </StatusLine>
         </Dismissible>
       )}
       {yt.status && (

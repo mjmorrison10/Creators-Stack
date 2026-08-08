@@ -2,9 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { KEYS, SESSION_KEYS } from "../../data/keys";
 import {
   readJSON,
+  readRaw,
   readSessionJSON,
   subscribe,
   writeJSON,
+  writeRaw,
   writeSessionJSON,
 } from "../../data/storage";
 import { tombstone } from "../../data/stackdata/tombstones";
@@ -80,6 +82,17 @@ export function usePulse() {
   const [autoNotice, setAutoNotice] = useState<string | null>(null);
 
   const postsRef = useRef(posts);
+  /**
+   * The exact string this hook last wrote.
+   *
+   * `writeRaw` notifies subscribers synchronously, so every save re-enters our
+   * own listener. Comparing PARSED values there can never match — `readJSON`
+   * builds a fresh object each call — so the echo was getting through: a
+   * redundant state pass and a second `syncAutoWinners` on every keystroke-level
+   * save, plus a re-parsed `posts` array that invalidated the grouping memos.
+   * The raw string is the only thing that actually compares equal.
+   */
+  const lastWriteRef = useRef<string | null>(null);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
 
@@ -124,8 +137,10 @@ export function usePulse() {
   const commit = useCallback(
     (next: PulsePost[]): boolean => {
       let ok = true;
+      const raw = JSON.stringify(next);
       try {
-        writeJSON(KEYS.pulsePosts, next);
+        writeRaw(KEYS.pulsePosts, raw);
+        lastWriteRef.current = raw;
       } catch {
         ok = false;
         setNotice({ tone: "error", text: SAVE_FAILED });
@@ -175,13 +190,13 @@ export function usePulse() {
   useEffect(
     () =>
       subscribe(KEYS.pulsePosts, () => {
+        const raw = readRaw(KEYS.pulsePosts);
+        // Our own write re-enters here synchronously; only a write from
+        // somewhere else is worth reacting to.
+        if (raw === lastWriteRef.current) return;
         const next = readJSON<PulsePost[]>(KEYS.pulsePosts, []);
-        // Our own write re-enters here synchronously. Skipping the echo saves a
-        // redundant state pass per save, and — more importantly — keeps the
-        // badge recompute for writes that actually came from elsewhere.
-        if (next === postsRef.current) return;
-        adopt(next);
-        refreshAuto(next);
+        adopt(Array.isArray(next) ? next : []);
+        refreshAuto(Array.isArray(next) ? next : []);
       }),
     [adopt, refreshAuto],
   );
