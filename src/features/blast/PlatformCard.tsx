@@ -3,7 +3,7 @@ import { Button } from "../../components/ui";
 import { copyText } from "../../data/download";
 import { checkCaption, STATUS_LABEL, type Platform, type PostStatus } from "../../domain/blast/platforms";
 import { applyTemplate, navTarget } from "../../domain/blast/compose";
-import type { BlastPost } from "../../domain/blast/queue";
+import { suggestLabel, type BlastPost } from "../../domain/blast/queue";
 
 const STATUS_TONE: Record<PostStatus, string> = {
   none: "border-edge text-faint",
@@ -24,6 +24,8 @@ export function PlatformCard({
   post,
   preset,
   onCaption,
+  onTitle,
+  onPick,
   onStatus,
   onPosted,
 }: {
@@ -31,6 +33,8 @@ export function PlatformCard({
   post: BlastPost;
   preset: string | undefined;
   onCaption: (text: string) => void;
+  onTitle: (text: string) => void;
+  onPick: (idx: number) => void;
   onStatus: (next: PostStatus) => void;
   onPosted: (url: string, caption: string) => void;
 }) {
@@ -42,6 +46,8 @@ export function PlatformCard({
   const outgoing = preset ? applyTemplate(preset, base) : base;
   const check = checkCaption(platform.name, outgoing);
   const status = post.status[platform.name] ?? "none";
+  const options = post.suggestions[platform.name] ?? [];
+  const pickedIdx = post.picked[platform.name];
 
   const copy = async (open: boolean): Promise<void> => {
     // The clipboard copy always happens first, so it is the backup whatever
@@ -78,6 +84,29 @@ export function PlatformCard({
         </span>
       </div>
 
+      {/* Generated options. Model output, so rendered as text nodes — never
+          HTML — and the pick is stored so BLAST and PULSE agree on which one
+          actually went out. */}
+      {options.length > 0 && (
+        <ul className="mb-2 flex flex-col gap-1.5">
+          {options.map((o, i) => (
+            <li key={i}>
+              <button
+                onClick={() => onPick(i)}
+                aria-pressed={i === pickedIdx}
+                className={`w-full rounded-lg border px-2.5 py-1.5 text-left text-xs transition ${
+                  i === pickedIdx
+                    ? "border-blast bg-surface text-ink"
+                    : "border-edge text-muted hover:text-ink"
+                }`}
+              >
+                {suggestLabel(o)}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
       <label className="sr-only" htmlFor={`cap-${platform.name}`}>
         {platform.name} caption
       </label>
@@ -101,6 +130,27 @@ export function PlatformCard({
         </span>
         {preset && <span className="text-blast">PRESET APPLIED</span>}
       </p>
+
+      {/* Pinterest is the one platform with a separate title field — legacy
+          stores it in `titles`, apart from the description. */}
+      {platform.name === "Pinterest" && (
+        <div className="mt-2">
+          <label
+            className="mb-1 block font-mono text-[10px] tracking-[0.08em] text-faint"
+            htmlFor="pin-title"
+          >
+            PIN TITLE
+          </label>
+          <input
+            id="pin-title"
+            value={post.titles[platform.name] ?? ""}
+            maxLength={100}
+            onChange={(e) => onTitle(e.target.value)}
+            placeholder="Pin title (up to 100 chars)"
+            className="w-full rounded-lg border border-edge bg-ground px-3 py-1.5 text-sm text-ink"
+          />
+        </div>
+      )}
 
       <div className="mt-2.5 flex flex-wrap gap-2">
         <Button onClick={() => void copy(false)}>COPY</Button>

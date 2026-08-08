@@ -19,6 +19,16 @@ import type { PostStatus } from "./platforms";
 /** Maps keyed by platform display name. */
 export type ByPlatform<T> = Record<string, T>;
 
+/**
+ * One generated caption option.
+ *
+ * Pinterest's are `{title, description}` objects rather than strings — legacy
+ * BLAST persists them that way and splits them across `captions` and `titles`
+ * (blast/app.js:1346-1361). This key is shared with the still-deployed app, so
+ * the shape is not ours to simplify.
+ */
+export type SuggestionOption = string | { title: string; description: string };
+
 export interface BlastPost {
   key: string;
   srcId: string;
@@ -38,7 +48,7 @@ export interface BlastPost {
   patternFamily: string;
   captions: ByPlatform<string>;
   titles: ByPlatform<string>;
-  suggestions: ByPlatform<string[]>;
+  suggestions: ByPlatform<SuggestionOption[]>;
   picked: ByPlatform<number>;
   status: ByPlatform<PostStatus>;
   postUrl: ByPlatform<string>;
@@ -94,13 +104,40 @@ export function blankPost(key: string, extra: Partial<BlastPost> = {}, now = Dat
 }
 
 /**
+ * Fill in anything a stored clip is missing, so the rest of the app can treat
+ * every field as present. `blankPost` supplies the defaults; the stored values
+ * win wherever they exist.
+ */
+function normalizeClip(p: Partial<BlastPost>): BlastPost {
+  const base = blankPost(String(p?.key || ""), {}, p?.createdAt ?? Date.now());
+  return {
+    ...base,
+    ...p,
+    key: String(p?.key || ""),
+    text: String(p?.text ?? ""),
+    hookText: String(p?.hookText ?? ""),
+    captions: p?.captions ?? {},
+    titles: p?.titles ?? {},
+    suggestions: p?.suggestions ?? {},
+    picked: p?.picked ?? {},
+    status: p?.status ?? {},
+    postUrl: p?.postUrl ?? {},
+    postedAt: p?.postedAt ?? {},
+    postedCaption: p?.postedCaption ?? {},
+  };
+}
+
+/**
  * Read the queue, guaranteeing the Quick post exists and sorts first. The
  * legacy invariant: Quick is permanent and always index 0.
  */
 export function loadQueue(): BlastQueue {
   const raw = readJSON<Partial<BlastQueue> | null>(KEYS.blastQueue, null);
   const ok = raw && raw.v === 1 && Array.isArray(raw.clips);
-  let clips = ok ? (raw.clips as BlastPost[]) : [];
+  // Normalized on read, as legacy's `bindPost` does (blast/app.js:363-371).
+  // Three other deployed apps and a sync merge write this key, so a clip
+  // arriving without its maps is a rendering crash rather than a missing field.
+  let clips = ok ? (raw.clips as Partial<BlastPost>[]).map(normalizeClip) : [];
 
   const quick = clips.find((p) => p.key === QUICK_KEY);
   if (!quick) clips = [blankPost(QUICK_KEY), ...clips];
@@ -188,6 +225,98 @@ function lastSheddableIndex(clips: BlastPost[]): number {
   return -1;
 }
 
+/**
+ * Clear the posting marks a previous clip left behind.
+ *
+ * Ported from `startFreshPostingSession` (blast/app.js:1863). New captions mean
+ * a new posting session: leaving the old marks made the grid claim platforms
+ * were already posted for a clip that had never been posted anywhere, and PULSE
+ * then imported the new captions attached to the OLD clip's URLs and
+ * timestamps — corrupting the stats it later fetched against those links.
+ *
+ * `carried` reports whether anything was actually cleared, and `posted` how
+ * many were marked posted, so the caller can confirm before discarding marks
+ * the user may not have imported into PULSE yet.
+ */
+export function postingMarks(p: BlastPost): { carried: string[]; posted: string[] } {
+  const names = Object.keys(p.status || {});
+  return {
+    carried: names.filter((n) => p.status[n] && p.status[n] !== "none"),
+    posted: names.filter((n) => p.status[n] === "posted"),
+  };
+}
+
+export function startFreshPosting(p: BlastPost): BlastPost {
+  return { ...p, status: {}, postUrl: {}, postedAt: {}, postedCaption: {} };
+}
+
+/**
+ * A suggestion is a plain string for every platform except Pinterest, whose
+ * options are `{title, description}`. These read either shape, so a legacy
+ * session with string Pinterest suggestions degrades to description-only
+ * rather than breaking (blast/app.js:567-572).
+ */
+export function suggestLabel(s: SuggestionOption | undefined): string {
+  if (s && typeof s === "object") return (s.title ? s.title + " — " : "") + (s.description || "");
+  return String(s ?? "");
+}
+
+export function suggestDesc(s: SuggestionOption | undefined): string {
+  return s && typeof s === "object" ? String(s.description || "") : String(s ?? "");
+}
+
+export function suggestTitle(s: SuggestionOption | undefined): string {
+  return s && typeof s === "object" ? String(s.title || "") : "";
+}
+
+/**
+ * Attach freshly generated options to a clip — the SUGGEST-button path
+ * (blast/app.js:1822-1837).
+ *
+ * Captions are deliberately NOT overwritten: the user picks an option from the
+ * chips, and silently replacing a caption they hand-wrote would be a
+ * destructive answer to "show me some options". The stored pick is CLEARED,
+ * because an index into the previous array outlives a regeneration that
+ * returned fewer options and would otherwise highlight a chip that no longer
+ * exists.
+ */
+export function attachSuggestions(
+  p: BlastPost,
+  byPlatform: ByPlatform<SuggestionOption[]>,
+): BlastPost {
+  const suggestions = { ...p.suggestions };
+  const picked = { ...p.picked };
+  for (const [name, opts] of Object.entries(byPlatform)) {
+    if (!Array.isArray(opts) || !opts.length) continue;
+    suggestions[name] = opts;
+    delete picked[name];
+  }
+  return { ...p, suggestions, picked };
+}
+
+/**
+ * Choose one option for a platform — the chip click (blast/app.js:714-721).
+ * Pinterest's title lands in `titles`, separate from the description.
+ */
+export function pickSuggestion(p: BlastPost, name: string, idx: number): BlastPost {
+  const opt = (p.suggestions[name] || [])[idx];
+  if (opt === undefined) return p;
+  return {
+    ...p,
+    picked: { ...p.picked, [name]: idx },
+    captions: { ...p.captions, [name]: suggestDesc(opt) },
+    titles: { ...p.titles, [name]: suggestTitle(opt).slice(0, 100) },
+  };
+}
+
+/** Typing your own caption clears the pick it no longer matches. */
+export function clearPick(p: BlastPost, name: string): BlastPost {
+  if (!(name in p.picked)) return p;
+  const picked = { ...p.picked };
+  delete picked[name];
+  return { ...p, picked };
+}
+
 export function findPost(q: BlastQueue, key: string): BlastPost | undefined {
   return q.clips.find((p) => p.key === key);
 }
@@ -247,7 +376,7 @@ export interface BlastSession {
   transcript: string;
   captions: ByPlatform<string>;
   titles: ByPlatform<string>;
-  suggestions: ByPlatform<string[]>;
+  suggestions: ByPlatform<SuggestionOption[]>;
   picked: ByPlatform<number>;
   status: ByPlatform<PostStatus>;
   postUrl: ByPlatform<string>;
@@ -312,7 +441,16 @@ export function writeSessionProjection(
   transcript: string | null = null,
   now = Date.now(),
 ): void {
-  writeJSON(KEYS.blastSession, buildSessionProjection(quickPost(q), transcript, now));
+  try {
+    writeJSON(KEYS.blastSession, buildSessionProjection(quickPost(q), transcript, now));
+  } catch {
+    // Quota — non-fatal, exactly as legacy treats it (blast/app.js:487). The
+    // projection is derived state: the queue is the truth and `saveQueue` has
+    // already reported its own failure. Letting this throw would take down the
+    // render — it is called from a mutation path and there is no error
+    // boundary — at the precise moment the shedding machinery is supposed to
+    // be degrading gracefully.
+  }
 }
 
 /**

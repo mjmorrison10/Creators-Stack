@@ -9,13 +9,13 @@ import {
   hooklabEvidenceBlock,
   isPartial,
   loadHooklabEvidence,
-  optionsToStrings,
+  normalizeOptions,
   parseCaptionJSON,
   readLengthPref,
   writeLengthPref,
   type CaptionResponse,
 } from "../../domain/blast/suggest";
-import type { BlastPost } from "../../domain/blast/queue";
+import type { BlastPost, SuggestionOption } from "../../domain/blast/queue";
 
 const LENGTHS: { id: LengthPref; label: string }[] = [
   { id: "short", label: "SHORT" },
@@ -46,7 +46,7 @@ export function SuggestPanel({
 }: {
   post: BlastPost;
   names: string[];
-  onApply: (suggestions: Record<string, string[]>) => void;
+  onApply: (suggestions: Record<string, SuggestionOption[]>) => void;
 }) {
   const [count, setCount] = useState(3);
   const [pref, setPref] = useState<LengthPref>(() => readLengthPref());
@@ -108,9 +108,12 @@ export function SuggestPanel({
   };
 
   const applyResult = (result: CaptionResponse): void => {
-    const out: Record<string, string[]> = {};
+    // Options are passed through in the shape the queue stores — Pinterest's
+    // stay {title, description} objects, because that is what the still-
+    // deployed legacy BLAST reads back.
+    const out: Record<string, SuggestionOption[]> = {};
     for (const n of names) {
-      const opts = optionsToStrings(result[n]);
+      const opts = normalizeOptions(n, result[n], count);
       if (opts.length) out[n] = opts;
     }
     if (!Object.keys(out).length) {

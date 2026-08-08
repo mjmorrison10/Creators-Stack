@@ -37,9 +37,15 @@ export function BinPanel({
   const [status, setStatus] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
 
   /**
-   * Send the bin to BLAST's queue. Clips binned from a TOP CLIPS card carry
-   * their hook and pattern; clips binned from plain search carry neither, and
-   * there the moment text is both the hook and the caption seed.
+   * Send the bin to BLAST's queue.
+   *
+   * The caption seed is always the moment text; the hook and pattern ride along
+   * ONLY when the bin item actually has them (clips binned from a TOP CLIPS
+   * card do, clips binned from plain search don't) — exactly the fields legacy
+   * copies (recall/app.js:660-663). Seeding the caption with the hook instead
+   * would throw away the substance of the moment, and stamping the moment text
+   * into `hookText` would put text that was never a hook into the `videoHook`
+   * PULSE reads.
    */
   const sendToBlast = (): void => {
     const r = queueToBlast(
@@ -50,14 +56,14 @@ export function BinPanel({
         srcTitle: b.srcTitle,
         t: b.t,
         sec: b.sec,
-        text: b.hookText || b.text,
-        hookText: b.hookText || b.text,
+        text: b.text,
+        ...(b.hookText ? { hookText: b.hookText } : {}),
         ...(b.label ? { label: b.label } : {}),
         ...(b.patternId ? { patternId: b.patternId } : {}),
         ...(b.patternName ? { patternName: b.patternName } : {}),
         ...(b.patternFamily ? { patternFamily: b.patternFamily } : {}),
       })),
-      "recall",
+      "recall-bin",
     );
     const saved = saveQueue(r.queue);
     setStatus(

@@ -8,7 +8,37 @@
  * having to delete and re-add it.
  */
 
-import { blankPost, type BlastPost, type BlastQueue } from "./queue";
+import { KEYS } from "../../data/keys";
+import { readJSON, removeKey } from "../../data/storage";
+import { blankPost, quickPost, updatePost, QUICK_KEY, type BlastPost, type BlastQueue } from "./queue";
+
+/**
+ * The single-caption inbox — `blast_handoff_v1`.
+ *
+ * Legacy RECALL's "Send to BLAST" on ONE moment writes a caption here rather
+ * than queueing a clip (recall/app.js:590), and legacy BLAST consumes and
+ * deletes it on load (blast/app.js:1037-1054). RECALL is still deployed and
+ * still writing it, so the unified app has to keep draining it or those
+ * captions silently never arrive — and because the key is SYNC_EXCLUDEd, it
+ * would never be cleaned up either.
+ *
+ * Returns the queue unchanged when there is nothing to take. The key is left
+ * ALONE when the Quick post already has a caption: that is work in progress,
+ * and the handoff waits rather than being dropped on the floor.
+ */
+export function consumeHandoff(q: BlastQueue, now = Date.now()): { queue: BlastQueue; took: boolean } {
+  const h = readJSON<{ caption?: unknown } | null>(KEYS.blastHandoff, null);
+  if (!h || typeof h.caption !== "string" || !h.caption.trim()) {
+    // Garbage-collect junk, exactly as legacy does.
+    if (h !== null) removeKey(KEYS.blastHandoff);
+    return { queue: q, took: false };
+  }
+  if ((quickPost(q).text || "").trim()) return { queue: q, took: false };
+
+  const queue = updatePost(q, QUICK_KEY, (p) => ({ ...p, text: h.caption as string }), now);
+  removeKey(KEYS.blastHandoff);
+  return { queue, took: true };
+}
 
 /** Fields a re-send may fill in on an existing clip, never overwrite. */
 export const HANDOFF_META = [

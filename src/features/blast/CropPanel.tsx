@@ -23,8 +23,14 @@ export function CropPanel() {
   // Object URLs and the wasm core both leak if the panel just disappears.
   const resultRef = useRef<string | null>(null);
   resultRef.current = result?.url ?? null;
+  // A transcode started before the panel was hidden keeps running, and its
+  // result would allocate a blob URL after the cleanup had already run. The
+  // flag lets `run` revoke immediately instead of leaking the encoded MP4.
+  const goneRef = useRef(false);
   useEffect(() => {
+    goneRef.current = false;
     return () => {
+      goneRef.current = true;
       if (resultRef.current) URL.revokeObjectURL(resultRef.current);
       releaseFFmpeg();
     };
@@ -59,10 +65,17 @@ export function CropPanel() {
       const url = URL.createObjectURL(
         new Blob([bytes as BlobPart], { type: "video/mp4" }),
       );
+      if (goneRef.current) {
+        // The panel was hidden mid-transcode; its cleanup has already run, so
+        // nothing will ever revoke this one but us.
+        URL.revokeObjectURL(url);
+        return;
+      }
       if (result) URL.revokeObjectURL(result.url);
       setResult({ url, name: croppedFilename(file.name) });
       setPhase("done");
     } catch (err) {
+      if (goneRef.current) return;
       setPhase("idle");
       setError(
         `Reformat failed: ${err instanceof Error ? err.message : "unknown error"}`,

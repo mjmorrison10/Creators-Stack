@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { KEYS } from "../../data/keys";
 import { subscribe } from "../../data/storage";
 import {
@@ -15,6 +15,7 @@ import {
   type BlastQueue,
 } from "../../domain/blast/queue";
 import { bumpStatus, type PostStatus } from "../../domain/blast/platforms";
+import { consumeHandoff } from "../../domain/blast/handoff";
 
 const SAVE_FAILED = "Couldn't save — storage is full. Mark a few clips posted and clear them.";
 
@@ -48,42 +49,73 @@ export function useBlast(): BlastState {
   const [activeKey, setActiveKey] = useState<string>(QUICK_KEY);
   const [notice, setNotice] = useState<string | null>(null);
 
+  /**
+   * The committed queue, readable synchronously.
+   *
+   * Mutations used to run through `setQueue((cur) => …)` and do their storage
+   * writes inside the updater. State updaters must be pure: StrictMode
+   * double-invokes them, so every keystroke saved twice, and a render React
+   * discarded still left its localStorage write behind. Handlers read the ref
+   * instead, so two writes in the same tick still see each other without any
+   * side effect happening during render.
+   */
+  const queueRef = useRef(queue);
+
+  const adopt = useCallback((q: BlastQueue) => {
+    queueRef.current = q;
+    setQueue(q);
+  }, []);
+
   // Another tab — or a still-deployed legacy BLAST — writing the queue should
   // show up here without a refresh.
-  useEffect(() => subscribe(KEYS.blastQueue, () => setQueue(loadQueue())), []);
+  useEffect(() => subscribe(KEYS.blastQueue, () => adopt(loadQueue())), [adopt]);
 
-  // The projection is rebuilt from the clip on mount too, so a session left by
-  // an older build (or synced while BLAST was closed) can never be what PULSE
-  // imports.
+  /**
+   * The legacy upgrade, and the projection rebuild, in that order.
+   *
+   * Both must work from the SAME migrated queue. Persisting it is what makes
+   * the rescue survive a reload, and building the projection from a second
+   * `loadQueue()` was actively destructive: at that moment the queue key does
+   * not exist yet, so the read returned a blank Quick post and the write
+   * blanked the session — the only copy of an in-flight caption. Legacy does
+   * `savePosts()` then projects from the in-memory clip (blast/app.js:489-506).
+   */
   useEffect(() => {
-    writeSessionProjection(loadQueue());
-  }, []);
+    const migrated = migrateSessionIntoQuick(loadQueue());
+    // Legacy RECALL is still deployed and still writes a single caption to
+    // `blast_handoff_v1`. Draining it here is what makes its "Send to BLAST"
+    // button keep working against the unified app.
+    const handed = consumeHandoff(migrated);
+    const saved = saveQueue(handed.queue);
+    adopt(saved.queue);
+    writeSessionProjection(saved.queue);
+    if (handed.took) setNotice(null);
+  }, [adopt]);
 
-  const commit = useCallback((next: BlastQueue, touchedKey: string | null) => {
-    const result = saveQueue(next);
-    // Use the SAVED queue, not the one passed in: a shed actually dropped
-    // suggestions, and carrying on with the pre-shed object would put them
-    // straight back on the next write.
-    setQueue(result.queue);
-    if (!result.ok) setNotice(SAVE_FAILED);
-    else if (result.shed) {
-      setNotice(
-        `Storage was full — dropped unused caption options on ${result.shed} clip${
-          result.shed === 1 ? "" : "s"
-        } to keep your captions.`,
-      );
-    } else setNotice(null);
+  const commit = useCallback(
+    (next: BlastQueue, touchedKey: string | null) => {
+      const result = saveQueue(next);
+      // Use the SAVED queue, not the one passed in: a shed actually dropped
+      // suggestions, and carrying on with the pre-shed object would put them
+      // straight back on the next write.
+      adopt(result.queue);
+      if (!result.ok) setNotice(SAVE_FAILED);
+      else if (result.shed) {
+        setNotice(
+          `Storage was full — dropped unused caption options on ${result.shed} clip${
+            result.shed === 1 ? "" : "s"
+          } to keep your captions.`,
+        );
+      } else setNotice(null);
 
-    if (touchedKey === QUICK_KEY) writeSessionProjection(result.queue);
-  }, []);
+      if (touchedKey === QUICK_KEY) writeSessionProjection(result.queue);
+    },
+    [adopt],
+  );
 
   const mutate = useCallback(
     (key: string, fn: (p: BlastPost) => BlastPost) => {
-      setQueue((cur) => {
-        const next = updatePost(cur, key, fn);
-        commit(next, key);
-        return next;
-      });
+      commit(updatePost(queueRef.current, key, fn), key);
     },
     [commit],
   );
@@ -102,21 +134,22 @@ export function useBlast(): BlastState {
     [mutate],
   );
 
+  /**
+   * Reset clears the Quick post only — a queued batch is the user's work, not
+   * session scratch. The transcript goes too: the user asked for a clean slate,
+   * and carrying it forward is not that.
+   */
   const reset = useCallback(() => {
-    setQueue((cur) => {
-      const next = resetQuick(cur);
-      commit(next, QUICK_KEY);
-      return next;
-    });
-  }, [commit]);
+    const next = resetQuick(queueRef.current);
+    const result = saveQueue(next);
+    adopt(result.queue);
+    setNotice(result.ok ? null : SAVE_FAILED);
+    writeSessionProjection(result.queue, "");
+  }, [adopt]);
 
   const remove = useCallback(
     (key: string) => {
-      setQueue((cur) => {
-        const next = removePost(cur, key);
-        commit(next, null);
-        return next;
-      });
+      commit(removePost(queueRef.current, key), null);
       setActiveKey((k) => (k === key ? QUICK_KEY : k));
     },
     [commit],
@@ -124,24 +157,24 @@ export function useBlast(): BlastState {
 
   const setBatchCount = useCallback(
     (n: number) => {
-      writeBatchCount(n);
+      try {
+        writeBatchCount(n);
+      } catch {
+        // Legacy catches this too (blast/app.js:436). Say so rather than
+        // throwing past the click handler and leaving the radio silently wrong.
+        setNotice(SAVE_FAILED);
+        return;
+      }
       // Re-save so the blob's copy — the one that rides along on sync — agrees
       // with the setting that just changed.
-      setQueue((cur) => {
-        commit(cur, null);
-        return cur;
-      });
+      commit(queueRef.current, null);
     },
     [commit],
   );
 
   const setDefaultPlatforms = useCallback(
     (names: string[] | null) => {
-      setQueue((cur) => {
-        const next = { ...cur, defaultPlatforms: names };
-        commit(next, null);
-        return next;
-      });
+      commit({ ...queueRef.current, defaultPlatforms: names }, null);
     },
     [commit],
   );

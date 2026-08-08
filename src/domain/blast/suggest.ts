@@ -276,16 +276,42 @@ export function parseCaptionJSON(text: string): CaptionResponse {
   }
 }
 
-/** Flatten one platform's options to the plain strings the editor stores. */
-export function optionsToStrings(options: CaptionOption[] | undefined): string[] {
+/**
+ * Normalize one platform's options into the shape `blast_queue_v1` stores.
+ *
+ * Pinterest keeps its `{title, description}` OBJECTS, because that is what the
+ * still-deployed legacy BLAST persists and reads back (blast/app.js:1346-1361)
+ * — flattening them to a single string would leave legacy's Pin-title field
+ * permanently empty and fuse the title into the description body. Every other
+ * platform is a plain string.
+ */
+export function normalizeOptions(
+  name: string,
+  options: CaptionOption[] | undefined,
+  count: number,
+): CaptionOption[] {
   if (!Array.isArray(options)) return [];
   return options
-    .map((o) =>
-      typeof o === "string"
-        ? o
-        : o && typeof o === "object" && "description" in o
-          ? [o.title, o.description].filter(Boolean).join("\n\n")
-          : "",
-    )
-    .filter(Boolean);
+    .slice(0, count)
+    .map((o): CaptionOption => {
+      if (name === "Pinterest" && o && typeof o === "object") {
+        return {
+          title: String(o.title || "").slice(0, 100),
+          description: String(o.description || ""),
+        };
+      }
+      return typeof o === "string" ? o : String((o as PinterestOption)?.description || "");
+    })
+    .filter((o) => (typeof o === "string" ? !!o : !!(o.title || o.description)));
+}
+
+/** The caption text an option contributes — Pinterest's title lives separately. */
+export function captionOf(o: CaptionOption | undefined): string {
+  if (o == null) return "";
+  return typeof o === "string" ? o : o.description || "";
+}
+
+/** The Pin title an option carries, if any. */
+export function titleOf(o: CaptionOption | undefined): string {
+  return o && typeof o === "object" ? o.title || "" : "";
 }

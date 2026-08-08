@@ -2,9 +2,18 @@ import { useState } from "react";
 import { SectionHeader } from "../../components/SectionHeader";
 import { Button, Card, Field, StatusLine, TextInput } from "../../components/ui";
 import { SECTIONS } from "../../sections";
-import { PLATFORMS, platformByName, STATUS_LABEL } from "../../domain/blast/platforms";
+import { bumpStatus, PLATFORMS, platformByName, STATUS_LABEL } from "../../domain/blast/platforms";
 import { readPresets, setPreset, writePresets } from "../../domain/blast/compose";
-import { QUICK_KEY, selectedNames } from "../../domain/blast/queue";
+import {
+  attachSuggestions,
+  clearPick,
+  pickSuggestion,
+  postingMarks,
+  QUICK_KEY,
+  selectedNames,
+  startFreshPosting,
+  type SuggestionOption,
+} from "../../domain/blast/queue";
 import { useBlast } from "./useBlast";
 import { PlatformCard } from "./PlatformCard";
 import { SuggestPanel } from "./SuggestPanel";
@@ -71,7 +80,39 @@ export function BlastSection() {
   const togglePlatform = (name: string): void => {
     const cur = chosen ?? PLATFORMS.map((p) => p.name);
     const next = cur.includes(name) ? cur.filter((n) => n !== name) : [...cur, name];
+    // An empty list means "all of them" to `selectedNames`, matching legacy —
+    // so switching off the last platform would silently turn all nine back on.
+    // Refuse the toggle instead of doing the opposite of what was asked.
+    if (!next.length) return;
     blast.mutate(post.key, (p) => ({ ...p, platforms: next }));
+  };
+
+  /**
+   * New captions mean a new posting session, so the previous clip's marks go —
+   * legacy does the same immediately after applying suggestions
+   * (blast/app.js:1837). Leaving them made the grid claim platforms were
+   * already posted for a clip that had never been posted anywhere, and PULSE
+   * then imported the new captions against the OLD clip's URLs and timestamps.
+   *
+   * Anything still marked posted is confirmed first: those marks may not have
+   * been imported into PULSE yet, and discarding them silently would lose the
+   * only record that the post went out.
+   */
+  const applySuggestions = (suggestions: Record<string, SuggestionOption[]>): void => {
+    const marks = postingMarks(post);
+    let fresh = marks.carried.length > 0;
+    if (marks.posted.length) {
+      fresh = window.confirm(
+        `Start a fresh posting session?\n\n${marks.posted.length} platform${
+          marks.posted.length > 1 ? "s are" : " is"
+        } still marked posted from the previous clip. Import them into PULSE ` +
+          "first if you haven't.\n\nCancel keeps the existing marks.",
+      );
+    }
+    blast.mutate(post.key, (p) => {
+      const withOpts = attachSuggestions(p, suggestions);
+      return fresh ? startFreshPosting(withOpts) : withOpts;
+    });
   };
 
   const savePreset = (name: string, template: string): void => {
@@ -160,25 +201,7 @@ export function BlastSection() {
 
       {showCrop && <CropPanel />}
 
-      <SuggestPanel
-        post={post}
-        names={names}
-        onApply={(suggestions) =>
-          blast.mutate(post.key, (p) => ({
-            ...p,
-            suggestions: { ...p.suggestions, ...suggestions },
-            // Seed each platform's caption with the top option, but never
-            // overwrite one the creator already wrote.
-            captions: Object.fromEntries(
-              Object.entries({ ...p.captions }).concat(
-                Object.entries(suggestions)
-                  .filter(([n]) => !p.captions[n])
-                  .map(([n, opts]) => [n, opts[0] ?? ""]),
-              ),
-            ),
-          }))
-        }
-      />
+      <SuggestPanel post={post} names={names} onApply={applySuggestions} />
 
       <Card
         title={`PLATFORMS — ${posted}/${names.length} POSTED`}
@@ -206,12 +229,9 @@ export function BlastSection() {
           })}
         </ul>
 
-        {names.length === 0 ? (
-          <p className="text-sm text-muted">
-            No platforms selected. Switch one on above and its caption appears here.
-          </p>
-        ) : (
-          <ul className="space-y-3">
+        {/* `names` is never empty: an empty selection means "all", and
+            togglePlatform refuses to leave zero on. */}
+        <ul className="space-y-3">
             {names.map((n) => {
               const platform = platformByName(n)!;
               return (
@@ -221,18 +241,31 @@ export function BlastSection() {
                   post={post}
                   preset={presets[n]}
                   onCaption={(text) =>
+                    blast.mutate(post.key, (p) =>
+                      // Writing your own caption clears the pick it no longer
+                      // matches, so the highlighted chip never lies about what
+                      // is in the box.
+                      clearPick({ ...p, captions: { ...p.captions, [n]: text } }, n),
+                    )
+                  }
+                  onTitle={(text) =>
                     blast.mutate(post.key, (p) => ({
                       ...p,
-                      captions: { ...p.captions, [n]: text },
+                      titles: { ...p.titles, [n]: text },
                     }))
                   }
+                  onPick={(idx) => blast.mutate(post.key, (p) => pickSuggestion(p, n, idx))}
                   onStatus={(next) =>
                     blast.setStatus(post.key, n, next, next === "skipped" || next === "posted")
                   }
                   onPosted={(url, caption) =>
                     blast.mutate(post.key, (p) => ({
                       ...p,
-                      status: { ...p.status, [n]: "posted" },
+                      // Through the machine, not around it: "posted" is one of
+                      // the two states the user chooses outright, so it is set
+                      // rather than bumped — but bumpStatus still refuses to
+                      // move a terminal state.
+                      status: { ...p.status, [n]: bumpStatus(p.status[n], "posted") },
                       postUrl: url ? { ...p.postUrl, [n]: url } : p.postUrl,
                       postedAt: { ...p.postedAt, [n]: Date.now() },
                       postedCaption: { ...p.postedCaption, [n]: caption },
@@ -241,8 +274,7 @@ export function BlastSection() {
                 />
               );
             })}
-          </ul>
-        )}
+        </ul>
       </Card>
 
       <Card title="STATUS" hint="What PULSE will see when you import this session.">

@@ -31,6 +31,9 @@ let loading: Promise<FFmpegInstance> | null = null;
  */
 let progressHandler: ((ratio: number) => void) | null = null;
 
+/** Bumped by `releaseFFmpeg`, so an in-flight load can tell it was abandoned. */
+let released = 0;
+
 function vendorUrl(path: string): string {
   // BASE_URL, not a root-absolute path — this app is served from a subpath.
   return new URL(`vendor/${path}`, new URL(import.meta.env.BASE_URL, location.href)).href;
@@ -47,6 +50,7 @@ export async function loadFFmpeg(
   if (instance) return instance;
   if (loading) return loading;
 
+  const generation = released;
   loading = (async () => {
     const util = (await import(/* @vite-ignore */ vendorUrl("ffmpeg-util/index.js"))) as {
       toBlobURL: (url: string, mime: string) => Promise<string>;
@@ -65,6 +69,12 @@ export async function loadFFmpeg(
       wasmURL: await util.toBlobURL(`${base}/ffmpeg-core.wasm`, "application/wasm"),
     });
 
+    if (generation !== released) {
+      // Released while this load was in flight. Terminate the worker we just
+      // built rather than installing it into a slot nobody is tracking.
+      ff.terminate();
+      throw new Error("ffmpeg load cancelled");
+    }
     instance = ff;
     return ff;
   })();
@@ -141,8 +151,16 @@ export function croppedFilename(sourceName: string): string {
   return "blast-" + sourceName.replace(/\.\w+$/, "") + "-vertical.mp4";
 }
 
-/** Free the worker and its memory — the core holds a lot of it. */
+/**
+ * Free the worker and its memory — the core holds a lot of it.
+ *
+ * `released` is bumped so a load still in flight knows its result is unwanted:
+ * clearing `loading` alone terminated nothing (there is no instance yet) and
+ * the pending load would later install its worker into the module slot, where
+ * nothing tracked it and nothing would ever terminate it.
+ */
 export function releaseFFmpeg(): void {
+  released++;
   instance?.terminate();
   instance = null;
   loading = null;

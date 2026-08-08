@@ -10,7 +10,7 @@ import {
   loadHooklabEvidence,
   MAX_EVIDENCE_WINNERS,
   NonJsonError,
-  optionsToStrings,
+  normalizeOptions,
   parseCaptionJSON,
   readLengthPref,
   salvageCaptionObject,
@@ -314,23 +314,43 @@ describe("reading the model's answer", () => {
   });
 });
 
-describe("turning options into stored captions", () => {
+describe("normalizing options into the shape the queue stores", () => {
   it("passes plain strings through", () => {
-    expect(optionsToStrings(["a", "b"])).toEqual(["a", "b"]);
+    expect(normalizeOptions("X", ["a", "b"], 3)).toEqual(["a", "b"]);
   });
 
-  it("folds a Pinterest object into title then description", () => {
-    expect(optionsToStrings([{ title: "T", description: "D" }])).toEqual(["T\n\nD"]);
+  it("KEEPS a Pinterest option as an object", () => {
+    // Legacy persists {title, description} and splits it across `captions` and
+    // `titles` (blast/app.js:1346-1361). Flattening it here would leave the
+    // still-deployed app's Pin-title field permanently empty.
+    expect(normalizeOptions("Pinterest", [{ title: "T", description: "D" }], 3)).toEqual([
+      { title: "T", description: "D" },
+    ]);
+  });
+
+  it("caps a Pin title at the 100 chars Pinterest accepts", () => {
+    const long = "t".repeat(140);
+    const out = normalizeOptions("Pinterest", [{ title: long, description: "D" }], 3);
+    expect((out[0] as { title: string }).title).toHaveLength(100);
+  });
+
+  it("degrades an object handed to a non-Pinterest platform to its description", () => {
+    expect(normalizeOptions("X", [{ title: "T", description: "D" } as never], 3)).toEqual(["D"]);
+  });
+
+  it("honors the requested count rather than storing every option returned", () => {
+    // A stale `picked` index is the bug this prevents downstream.
+    expect(normalizeOptions("X", ["a", "b", "c", "d"], 2)).toEqual(["a", "b"]);
   });
 
   it("drops empty and malformed options rather than storing blanks", () => {
-    expect(optionsToStrings(["", null as never, { title: "", description: "" } as never])).toEqual(
-      [],
-    );
+    expect(
+      normalizeOptions("X", ["", null as never, { title: "", description: "" } as never], 3),
+    ).toEqual([]);
   });
 
   it("tolerates a missing or non-array value", () => {
-    expect(optionsToStrings(undefined)).toEqual([]);
-    expect(optionsToStrings("nope" as never)).toEqual([]);
+    expect(normalizeOptions("X", undefined, 3)).toEqual([]);
+    expect(normalizeOptions("X", "nope" as never, 3)).toEqual([]);
   });
 });
