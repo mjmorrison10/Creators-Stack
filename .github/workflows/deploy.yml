@@ -20,6 +20,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # The differential unit tests diff the ports against the ORIGINAL apps
+      # read off disk, resolving `../../../<app>/…` — siblings of the
+      # workspace. Without these clones `npm test` dies with ENOENT before
+      # running anything. See ci.yml for why they are cloned rather than
+      # vendored.
+      - name: Clone the legacy apps the differentials diff against
+        run: |
+          for repo in recall Hooklabs blast pulse; do
+            git clone --depth 1 "https://github.com/mjmorrison10/$repo" "../$repo"
+          done
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
