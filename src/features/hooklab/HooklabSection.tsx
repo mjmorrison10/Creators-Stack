@@ -53,7 +53,7 @@ export function HooklabSection() {
         ))}
       </div>
 
-      {tab === "generate" && <GenerateView ledger={state.ledger} onLog={logFromGenerate} />}
+      {tab === "generate" && <GenerateView ledger={state.ledger} comps={state.comps} onLog={logFromGenerate} />}
       {tab === "ledger" && (
         <LedgerView
           state={state}

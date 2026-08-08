@@ -484,3 +484,51 @@ Locked-in decisions:
   the committed E2E suite, and deploy + live verification.
 
 - 706 unit tests, 13 headless suites green (41 of them new PULSE checks).
+
+- **Phase 7 — cross-section flows + polish.** Commit `460fd8c`.
+  - The dead echo-guard in `usePulse` is gone: the subscriber now compares
+    the RAW string the hook itself last wrote, so a local save no longer
+    re-enters the cross-tab path, re-runs `syncAutoWinners`, and replaces
+    `posts` with a parsed clone that invalidated every grouping memo.
+  - `HandoffLink` gives the handoff notices somewhere to go — RECALL's
+    send-success offers OPEN BLAST, PULSE's ledger notice offers OPEN
+    HOOKLAB. Deliberately links, not redirects: the creator is usually
+    mid-batch and being teleported out of it is worse than a dead end.
+  - Real empty states for RECALL's zero-hit search and HOOKLAB's
+    pre-generation view. BLAST's queue was inspected and skipped — `loadQueue`
+    guarantees the Quick post, so an empty-list branch would be dead code.
+  - `seedThemeFromLegacy` gained the 10 tests it never had, pinning the
+    hooklab → blast → pulse order, the bare-vs-JSON-quoted tolerance, junk
+    rejection, and that a legacy theme key is never written back.
+
+- **Phase 7b — the HOOKLAB AI path.** A parity gap the Phase 7 audit found:
+  `underwriteWithAI` exists in the legacy app and was specified in the
+  Phase 3 spec, but the port's UNDERWRITE button was offline-only.
+  - `src/domain/hooklab/ai.ts` ports the prompt builder, the reply parser,
+    and the attach step from `Hooklabs/app.js:593-777`, with all the caps
+    verbatim (14 patterns, 15 ledger entries, 12 comps, 2500 chars of source
+    material, 3 CTAs, 20 results) and the thinking-dependent token cap —
+    thinking tokens count against the output budget on Gemini, so a fixed cap
+    would truncate the JSON itself.
+  - **The honesty rule is the point of the file.** A hook naming a pattern
+    that does not resolve tries a name match and is then DROPPED. Attaching
+    it to `selected[0]` — which is what a "just pick something" fallback
+    would do — would show that line with a win rate, a badge and evidence it
+    never earned. The slot is instead backfilled by the offline pass and
+    labelled SCAFFOLD FILL, so every card says truthfully where its wording
+    came from.
+  - 25 differential tests slice `entryMedium` → `render` out of the legacy
+    IIFE and diff the port against it. Six mutations, all caught — the last
+    only after adding a 40-duplicate-patternId fixture, because the result
+    cap of 20 is unreachable from 14 selected patterns unless the model
+    repeats itself.
+  - `GenerateView` gained the missing brief fields (source material, goal),
+    the Hooks / Angles / CTAs tabs, a visible offline fallback when the call
+    fails, and a per-card AI DRAFT vs SCAFFOLD FILL badge with its grounding
+    line. Model output renders as text nodes, never HTML.
+  - Verified headlessly with the provider stubbed by interception: 20 checks
+    covering the orphan-hook drop, the backfill labelling, name-matched
+    resolution, an unknown CTA id falling back rather than vanishing, and the
+    prompt actually carrying the creator's own ledger and source material.
+  - 741 unit tests, 15 headless suites (288 checks) green; typecheck and
+    build clean at 515 kB.
