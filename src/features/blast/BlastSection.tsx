@@ -8,6 +8,7 @@ import { QUICK_KEY, selectedNames } from "../../domain/blast/queue";
 import { useBlast } from "./useBlast";
 import { PlatformCard } from "./PlatformCard";
 import { SuggestPanel } from "./SuggestPanel";
+import { CropPanel } from "./CropPanel";
 
 const meta = SECTIONS[2]!;
 
@@ -61,6 +62,7 @@ export function BlastSection() {
   const blast = useBlast();
   const [presets, setPresets] = useState(() => readPresets());
   const [showPresets, setShowPresets] = useState(false);
+  const [showCrop, setShowCrop] = useState(false);
 
   const post = blast.active;
   const names = selectedNames(blast.queue, post);
@@ -112,6 +114,11 @@ export function BlastSection() {
           <Button onClick={() => setShowPresets(!showPresets)}>
             {showPresets ? "HIDE PRESETS" : "PRESETS"}
           </Button>
+          {/* Unmounting the panel is what releases the ~31MB wasm core, so the
+              toggle is load-bearing rather than cosmetic. */}
+          <Button onClick={() => setShowCrop(!showCrop)}>
+            {showCrop ? "HIDE 9:16 CROP" : "9:16 CROP"}
+          </Button>
           {post.key === QUICK_KEY && <Button onClick={blast.reset}>RESET</Button>}
         </div>
 
@@ -150,6 +157,8 @@ export function BlastSection() {
           </ul>
         </Card>
       )}
+
+      {showCrop && <CropPanel />}
 
       <SuggestPanel
         post={post}
