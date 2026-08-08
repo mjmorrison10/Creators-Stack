@@ -12,7 +12,7 @@
  */
 
 import { KEYS } from "../../data/keys";
-import { readJSON, writeJSON } from "../../data/storage";
+import { QuotaError, readJSON, readRaw, writeJSON, writeRaw } from "../../data/storage";
 import { PLATFORMS } from "./platforms";
 import type { PostStatus } from "./platforms";
 
@@ -110,7 +110,11 @@ export function loadQueue(): BlastQueue {
     v: 1,
     updatedAt: (ok && raw.updatedAt) || Date.now(),
     defaultPlatforms: (ok && raw.defaultPlatforms) || null,
-    batchCount: normalizeBatchCount(ok ? raw.batchCount : undefined),
+    // NOT from the queue blob. `blast_batch_count_v1` is the source of truth
+    // for the setting; the copy inside the blob exists only so the value rides
+    // along to another device on sync. Reading the blob would let a synced
+    // queue silently change this device's setting.
+    batchCount: readBatchCount(),
     clips,
   };
 }
@@ -121,8 +125,67 @@ export function normalizeBatchCount(v: unknown): number {
   return n === 2 || n === 3 ? n : 1;
 }
 
-export function saveQueue(q: BlastQueue, now = Date.now()): void {
-  writeJSON(KEYS.blastQueue, { ...q, v: 1, updatedAt: now });
+export function readBatchCount(): number {
+  return normalizeBatchCount(readRaw(KEYS.blastBatchCount));
+}
+
+export function writeBatchCount(v: number): void {
+  writeRaw(KEYS.blastBatchCount, String(normalizeBatchCount(v)));
+}
+
+export interface SaveResult {
+  ok: boolean;
+  /** The queue as persisted — with any shed suggestions actually removed. */
+  queue: BlastQueue;
+  /** Clips whose unpicked suggestions were dropped to make room. */
+  shed: number;
+}
+
+/**
+ * Persist the queue, shedding unpicked suggestions if the store is full.
+ *
+ * Suggestion arrays are by far the biggest thing in here, so a full batch
+ * degrades to "captions kept, extra options lost" rather than "nothing saved".
+ * The Quick post is never shed — it is the one the user is looking at.
+ *
+ * Shedding order note: the legacy comment says "oldest clips first" but its
+ * loop runs from the end of the array backwards, which sheds the MOST RECENTLY
+ * ADDED clip first. The behavior is ported, not the comment — a user's oldest
+ * queued clip is the one they are most likely still working through, so
+ * dropping the newest first is also the better of the two.
+ *
+ * Callers must use the returned queue: the shed is real, and continuing with
+ * the pre-shed object would put the dropped suggestions back on the next save.
+ */
+export function saveQueue(q: BlastQueue, now = Date.now()): SaveResult {
+  let queue: BlastQueue = { ...q, v: 1, updatedAt: now, batchCount: readBatchCount() };
+  let shed = 0;
+
+  for (;;) {
+    try {
+      writeJSON(KEYS.blastQueue, queue);
+      return { ok: true, queue, shed };
+    } catch (e) {
+      if (!(e instanceof QuotaError)) throw e;
+      const at = lastSheddableIndex(queue.clips);
+      if (at < 0) return { ok: false, queue, shed };
+      queue = {
+        ...queue,
+        clips: queue.clips.map((p, i) => (i === at ? { ...p, suggestions: {} } : p)),
+      };
+      shed++;
+    }
+  }
+}
+
+/** Newest-first, skipping Quick and anything with nothing left to drop. */
+function lastSheddableIndex(clips: BlastPost[]): number {
+  for (let i = clips.length - 1; i >= 0; i--) {
+    const p = clips[i]!;
+    if (p.key === QUICK_KEY) continue;
+    if (Object.keys(p.suggestions || {}).length) return i;
+  }
+  return -1;
 }
 
 export function findPost(q: BlastQueue, key: string): BlastPost | undefined {
