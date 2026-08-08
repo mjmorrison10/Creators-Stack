@@ -445,7 +445,40 @@ Locked-in decisions:
   healers were correctly merging again; the idempotence check was meaningless
   until that was guarded.
 
-- **Phase 6 remaining:** `/code-review` at the phase boundary and its fixes.
+- **Phase 6 code review (`d557ff9`): 2 HIGH, 5 MEDIUM, 5 LOW. All fixed.**
+  No CRITICALs, but for the second phase running, every finding but one was
+  in the WIRING layer — the domain port, being differential- and
+  mutation-tested, held. That is now a pattern worth acting on rather than
+  noting: the wiring has no tests at all.
+  - **HIGH-1 — the YouTube key never reached PULSE.** Settings writes the
+    shared `stack_settings_v1`; PULSE read only its own blob, so
+    auto-tracking was permanently dead for anyone who had not previously run
+    legacy PULSE in the same browser. `resolveKeys` existed with ZERO callers
+    anywhere in src/. Wiring it also fixes the reverse: clearing the key in
+    Settings now actually stops this section sending a revoked credential.
+  - **HIGH-2 — a stale input could silently retract an auto-promotion.**
+    `ViewsInput` initialized once and never resynced, so a reading arriving
+    from an auto check or another tab left the box holding the OLD number,
+    highlighted as if edited. RECORD then wrote the stale figure back as a
+    fresh manual reading, dropping the post below its cutoff and tombstoning
+    its ledger row so a sync could not restore it.
+  - **The healers ran AFTER the first paint** — they were in an effect, and
+    two comments claimed otherwise. Moved into the state initializer.
+  - Three of legacy's four auto-check triggers were missing (section open,
+    after import, link pasted from the clip view). Without them an imported
+    batch was never fetched, and the 1h/2h/6h checkpoints are unrecoverable
+    because a later reading covers them without backfilling.
+  - `tombstone()` threw on a full store, and the boot healers call it before
+    commit — blanking the section on every load with no way to free space.
+    Now swallows, as legacy does.
+  - `importBackupPosts` now normalizes at the boundary; a caption-less post
+    threw during render on every load once persisted.
+
+- **Standing lesson for Phases 7-10:** two consecutive reviews found their
+  defects almost entirely in React hooks and components, and zero tests
+  touch that layer. Phase 9's committed E2E suite should be brought forward
+  in spirit — at minimum, the mount/boot sequence of each section deserves
+  a test before more UI is layered on it.
 
 - **Then Phases 7-10:** cross-section flows + polish, accessibility + PWA,
   the committed E2E suite, and deploy + live verification.
