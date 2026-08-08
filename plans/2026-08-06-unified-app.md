@@ -526,9 +526,73 @@ Locked-in decisions:
     the Hooks / Angles / CTAs tabs, a visible offline fallback when the call
     fails, and a per-card AI DRAFT vs SCAFFOLD FILL badge with its grounding
     line. Model output renders as text nodes, never HTML.
-  - Verified headlessly with the provider stubbed by interception: 20 checks
+  - Verified headlessly with the provider stubbed by interception: 29 checks
     covering the orphan-hook drop, the backfill labelling, name-matched
     resolution, an unknown CTA id falling back rather than vanishing, and the
-    prompt actually carrying the creator's own ledger and source material.
-  - 741 unit tests, 15 headless suites (288 checks) green; typecheck and
-    build clean at 515 kB.
+    prompt actually carrying the creator's own ledger, brand voice and source
+    material.
+  - **Where the headless suites live (correcting the record across every
+    phase).** They are a scratchpad harness run manually against
+    `vite preview`, NOT committed to this repo — `tests/e2e/` is empty and
+    there is no `playwright.config.*`. Earlier log entries say "verified
+    headlessly" without saying that, which reads as though the verification
+    is reproducible from a clone. It isn't yet. Committing them IS Phase 9,
+    and until that lands, every headless claim in this log means "run by hand
+    at the time of the commit". Called out by the Phase 7b review, and it is
+    the fair criticism: the layer these suites cover is precisely the layer
+    the last three reviews found their defects in.
+
+- **Phase 7b review-lite and its fixes.** The domain port held — every cap,
+  call param, the scoring formula, the comp thresholds and the CTA fallback
+  were independently re-derived from the legacy source and matched. One real
+  defect in it, and the rest exactly where the standing lesson predicted.
+
+  - **HIGH — `attachHooks` used the wrong status ladder.** The legacy AI path
+    does not call `statusFor`; it writes its own ladder inline
+    (`Hooklabs/app.js:721-724`) which differs in BOTH directions: no
+    "mixed personal signal" rung, and a comp-similarity rung `statusFor`
+    lacks entirely. The port's `compMatch` spread into the argument looked
+    like it preserved the comp rule and was dead code. Consequence: a drafted
+    line echoing a stored market comp on a sub-0.8 pattern rendered a card
+    that contradicted itself — "Similar to market comp: …" underneath a
+    HYPOTHESIS badge — and in the other direction it could claim `market`
+    off a record the creator's own numbers call ambiguous. Now an explicit
+    `aiStatusFor`, with the offline backfill correctly still on `statusFor`.
+
+    The existing 25 differential tests could not catch it: every pattern in
+    the default top-14 is at or above 0.84 strength, so the `strength >= 0.8`
+    rung short-circuits both ladders. Three new tests pull in the `tactical`
+    angle, where question-bait (0.79) makes the selection. Reaching the
+    mixed-personal band took more care still — two same-family entries score
+    0.55 fatigue and drag the pattern out of the top 14, so ten unrelated
+    entries go in first to push the pair out of fatigue's 10-entry window
+    while `familyStats` still counts them. Without that the mutation stayed
+    alive, which is the suite admitting the rule was asserted by nothing.
+    All three ladder mutations now killed.
+
+  - **brandVoice was never passed**, so prompt rule 3 was permanently inert.
+    Read from `hooklab_settings_v1`, which migrating users already have.
+  - **A successful call yielding zero usable hooks reported success.** When a
+    model paraphrases pattern ids past what the name match catches, every
+    hook is correctly dropped and the user gets 14 scaffold fills, a paid API
+    call, and no message — indistinguishable from an offline run. Both the
+    all-dropped and the partially-dropped case now say so.
+  - **No `withJsonRetry` / `partialOnTruncate`**, unlike every other AI call
+    in the repo. HOOKLAB asks for 14 hooks plus 3 CTAs against its own token
+    cap, so a long reply hits MAX_TOKENS and was discarded whole — even
+    though `attachHooks` is built to backfill a partial one. `onPhase` is
+    wired too, so a silent OpenRouter→Gemini switch is now reported.
+  - **A tab switch destroyed an in-flight generation.** Thinking is on by
+    default, so checking the ledger mid-wait is normal; the user returned to
+    the pre-generation empty state with no sign the request had happened.
+    GENERATE now stays mounted behind `hidden`. LEDGER and BANK stay
+    conditional — LedgerView's one-shot prefill relies on remounting.
+  - Smaller: the CTA engagement boost is now computed from the ledger as
+    legacy does; the keyless path says it ran offline instead of silently
+    showing scaffold fills; `goal` no longer vanishes from the prompt when
+    undefined (`JSON.stringify` drops the key); hook cards key on the
+    candidate id so a stale COPIED state can't survive a regeneration.
+  - Four wiring mutations validated against a rebuilt bundle — each new
+    headless check fails without its fix.
+  - 744 unit tests, 15 headless suites (297 checks), typecheck and build
+    green.

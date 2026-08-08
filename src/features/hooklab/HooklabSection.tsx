@@ -53,7 +53,18 @@ export function HooklabSection() {
         ))}
       </div>
 
-      {tab === "generate" && <GenerateView ledger={state.ledger} comps={state.comps} onLog={logFromGenerate} />}
+      {/* GENERATE stays mounted across tab switches. Unmounting it abandoned
+          an in-flight AI call — thinking is on by default, so the wait is long
+          enough that checking the ledger mid-generation is a normal thing to
+          do — and the user came back to the pre-generation empty state with no
+          sign the request had ever happened. `hidden` keeps it out of the
+          accessibility tree while preserving its state.
+
+          The other two are still conditional: LedgerView's one-shot prefill
+          relies on being remounted to pick it up. */}
+      <div hidden={tab !== "generate"}>
+        <GenerateView ledger={state.ledger} comps={state.comps} onLog={logFromGenerate} />
+      </div>
       {tab === "ledger" && (
         <LedgerView
           state={state}

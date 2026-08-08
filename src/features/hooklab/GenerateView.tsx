@@ -4,6 +4,7 @@ import { ANGLES, NICHES, PLATFORMS } from "../../domain/hooklab/patterns";
 import { offlineFill, unfilledSlots } from "../../domain/hooklab/offline";
 import {
   evidenceLine,
+  familyStats,
   selectPatterns,
   statusFor,
   type BadgeStatus,
@@ -20,13 +21,14 @@ import {
   buildAngles,
   buildCtas,
   parseAIReply,
+  readBrandVoice,
   readThinkingPref,
   type AngleSummary,
   type Candidate as AICandidate,
   type CtaSuggestion,
 } from "../../domain/hooklab/ai";
 import { mediumForPlatform } from "../../domain/hooklab/patterns";
-import { generateText, withGeminiFallback } from "../../services/llm/provider";
+import { generateText, withGeminiFallback, withJsonRetry } from "../../services/llm/provider";
 import { hasProviderKey, resolveProviderConfig } from "../../services/llm/config";
 
 /**
@@ -42,6 +44,7 @@ const BADGES: Record<BadgeStatus, { label: string; className: string }> = {
 };
 
 interface Candidate {
+  id: string;
   scored: ScoredPattern;
   text: string;
   status: BadgeStatus;
@@ -143,6 +146,8 @@ export function GenerateView({
   const [ctas, setCtas] = useState<CtaSuggestion[]>([]);
   const [tab, setTab] = useState<"hooks" | "angles" | "ctas">("hooks");
   const [busy, setBusy] = useState(false);
+  /** What the provider is doing right now — a long call needs to say so. */
+  const [phase, setPhase] = useState<string | null>(null);
   const [note, setNote] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
 
   const toggleAngle = (id: string): void =>
@@ -152,6 +157,7 @@ export function GenerateView({
   const show = (list: AICandidate[]): void => {
     setResults(
       list.map((c) => ({
+        id: c.id,
         scored: {
           pattern: c.pattern,
           score: c.score,
@@ -192,52 +198,96 @@ export function GenerateView({
   const underwrite = async (): Promise<void> => {
     const cfg = resolveProviderConfig();
     const medium = mediumForPlatform(platform);
-    const brief = { topic, sourceMaterial, niche, platform, goal };
+    // brandVoice comes from HOOKLAB's own settings blob, which migrating users
+    // already have. Omitting it left prompt rule 3 permanently inert.
+    const brief = { topic, sourceMaterial, niche, platform, goal, brandVoice: readBrandVoice() };
+    // The CTA boost the legacy computes from the ledger's engagement family.
+    const engagement = familyStats(ledger, medium).engagement;
 
     // No key means no AI — and that is a first-class path, not a degraded one.
     // Offline underwriting still ranks real patterns against the real ledger.
+    // It still says so: every card reads SCAFFOLD FILL, and a user who thinks
+    // they configured a key deserves to learn otherwise here rather than
+    // wonder why the wording looks templated.
     if (!hasProviderKey(cfg)) {
-      const offline = underwriteOffline();
-      show(offline);
-      setCtas(buildCtas(topic, goal, medium));
-      setNote(null);
+      show(underwriteOffline());
+      setCtas(buildCtas(topic, goal, medium, engagement));
+      setNote({
+        tone: "ok",
+        text: "Underwritten offline — no API key set, so these are scaffold fills against your real ledger. Add a key in Settings for drafted wording.",
+      });
       return;
     }
 
     setBusy(true);
     setNote(null);
+    setPhase(null);
     try {
       const selected = selectPatterns(ledger, niche, platform, angles).slice(
         0,
         AI_LIMITS.patterns,
       );
       const thinking = readThinkingPref() === "on";
-      const raw = await withGeminiFallback(cfg, (c) =>
-        generateText(c, {
-          prompt: buildAIPrompt(brief, selected, ledger, comps),
-          temperature: AI_CALL.temperature,
-          jsonMode: true,
-          thinkingBudget: thinking ? AI_CALL.thinkingBudget : 0,
-          maxTokens: thinking ? AI_CALL.maxTokensThinking : AI_CALL.maxTokens,
-        }),
+      const notices = { onPhase: setPhase };
+      // Same wrapping as BLAST's suggestion call, and for the same reasons:
+      // `partialOnTruncate` because HOOKLAB asks for 14 hooks plus 3 CTAs
+      // against its own token cap — a long reply hits MAX_TOKENS and would
+      // otherwise be discarded whole, even though attachHooks is built to
+      // backfill a partial one. `withJsonRetry` because a reasoning model that
+      // spends its budget monologuing usually recovers on the nudge.
+      const parsed = await withGeminiFallback(
+        cfg,
+        (c) =>
+          withJsonRetry(
+            (nudge) =>
+              generateText(c, {
+                prompt: buildAIPrompt(brief, selected, ledger, comps) + nudge,
+                temperature: AI_CALL.temperature,
+                jsonMode: true,
+                partialOnTruncate: true,
+                thinkingBudget: thinking ? AI_CALL.thinkingBudget : 0,
+                maxTokens: thinking ? AI_CALL.maxTokensThinking : AI_CALL.maxTokens,
+                onPhase: setPhase,
+              }).then(parseAIReply),
+            notices,
+          ),
+        notices,
       );
-      const parsed = parseAIReply(raw);
       const drafted = attachHooks(parsed, selected, topic, medium, comps, sourceMaterial, () =>
         `h_${Math.random().toString(36).slice(2, 9)}`,
       );
       show(drafted);
-      setCtas(attachCtas(parsed, topic, goal, medium));
+      setCtas(attachCtas(parsed, topic, goal, medium, engagement));
+
+      // A call that succeeded but produced nothing usable looks exactly like
+      // an offline run, and silence would let it pass for one. This happens
+      // when the model paraphrases pattern ids past what the name match
+      // catches — every hook is then correctly dropped.
+      const kept = drafted.filter((c) => c.mode === "ai").length;
+      const asked = parsed.hooks?.length ?? 0;
+      if (kept === 0 && asked > 0) {
+        setNote({
+          tone: "error",
+          text: `The model returned ${asked} hook${asked === 1 ? "" : "s"}, but none named a pattern from the brief — they were dropped rather than shown with borrowed provenance. These are scaffold fills.`,
+        });
+      } else if (kept < asked) {
+        setNote({
+          tone: "ok",
+          text: `${asked - kept} of ${asked} returned hooks named no pattern from the brief and were dropped. The rest are drafted.`,
+        });
+      }
     } catch (e) {
       // Falling back is the right answer, but saying so matters: silently
       // showing scaffold fills would look like the AI wrote them.
       show(underwriteOffline());
-      setCtas(buildCtas(topic, goal, medium));
+      setCtas(buildCtas(topic, goal, medium, engagement));
       setNote({
         tone: "error",
         text: `${e instanceof Error ? e.message : "AI failed"} — showing offline scaffold fills instead.`,
       });
     } finally {
       setBusy(false);
+      setPhase(null);
     }
   };
 
@@ -325,7 +375,7 @@ export function GenerateView({
         </Field>
 
         <Button onClick={() => void underwrite()} variant="primary" disabled={busy}>
-          {busy ? "UNDERWRITING…" : "UNDERWRITE HOOKS"}
+          {busy ? (phase ?? "UNDERWRITING…") : "UNDERWRITE HOOKS"}
         </Button>
         {note && <StatusLine tone={note.tone}>{note.text}</StatusLine>}
       </Card>
@@ -383,7 +433,10 @@ export function GenerateView({
             <ul className="space-y-3">
               {results.map((c, i) => (
                 <HookCard
-                  key={`${c.scored.pattern.id}-${i}`}
+                  // Keyed on the candidate, not its rank: a card that showed
+                  // COPIED would otherwise keep showing it when the next run
+                  // put a different hook at the same position.
+                  key={c.id}
                   candidate={c}
                   rank={i + 1}
                   topic={topic}

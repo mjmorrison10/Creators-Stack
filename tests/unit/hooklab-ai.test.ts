@@ -349,6 +349,110 @@ describe("attaching hooks, against the original", () => {
     expect(r.myHooks[0]!.compMatch).toBeTruthy();
   });
 
+  it("reads a comp echo as MARKET even on a pattern under the strength bar", async () => {
+    // Found by review, and the reason the AI path can't just reuse `statusFor`.
+    //
+    // The legacy AI ladder has a comp rung that the offline ladder does not:
+    // a drafted line that closely echoes a stored market comp is `market` even
+    // when the pattern behind it sits under 0.8 strength. Every pattern in the
+    // DEFAULT top-14 is at or above 0.84, so that rung short-circuits and both
+    // ladders agree — which is exactly why this went unnoticed. The `tactical`
+    // angle pulls in question-bait (0.79), where they diverge.
+    //
+    // Without it the card contradicts itself: the evidence line says "Similar
+    // to market comp: …" underneath a HYPOTHESIS badge.
+    const angles = ["tactical"];
+    const seed = await runBoth(brief, angles, "{}", [], COMPS);
+    const weak = seed.selected.find((s) => s.pattern.strength < 0.8);
+    expect(weak, "the tactical angle should select a sub-0.8 pattern").toBeTruthy();
+
+    const reply = JSON.stringify({
+      hooks: [
+        {
+          patternId: weak!.pattern.id,
+          text: "the hardest rep is the one nobody sees you do",
+          grounding: "g",
+        },
+      ],
+      ctas: [],
+    });
+    const r = await runBoth(brief, angles, reply, [], COMPS);
+
+    expect(r.myHooks).toEqual(r.theirs.result.hooks);
+    const drafted = r.myHooks.find((h) => h.mode === "ai")!;
+    expect(drafted.compMatch).toBeTruthy();
+    expect(drafted.status).toBe("market");
+  });
+
+  it("stays HYPOTHESIS on the same pattern when nothing echoes it", async () => {
+    // The other side of the rung — proof it is the comp doing the work and not
+    // the pattern, so the previous test can actually fail.
+    const angles = ["tactical"];
+    const seed = await runBoth(brief, angles, "{}", [], COMPS);
+    const weak = seed.selected.find((s) => s.pattern.strength < 0.8)!;
+
+    const reply = JSON.stringify({
+      hooks: [{ patternId: weak.pattern.id, text: "an entirely unrelated line", grounding: "g" }],
+      ctas: [],
+    });
+    const r = await runBoth(brief, angles, reply, [], COMPS);
+
+    expect(r.myHooks).toEqual(r.theirs.result.hooks);
+    const drafted = r.myHooks.find((h) => h.mode === "ai")!;
+    expect(drafted.compMatch).toBeNull();
+    expect(drafted.status).toBe("hypo");
+  });
+
+  it("does NOT promote a mixed personal record the way the offline ladder does", async () => {
+    // `statusFor` has a "mixed personal signal" rung (winRate != null &&
+    // personal >= 0.45) that the AI ladder omits. A drafted hook must not
+    // inherit it — that would claim market proof off a record the creator's
+    // own numbers call ambiguous.
+    // Reaching that band takes some care, and the care IS the point — a first
+    // attempt without it left the mutation alive. One winner plus one dead in
+    // the engagement family puts personal at 0.525 with a win rate of 0.5,
+    // landing inside the band. But two same-family entries also score 0.55
+    // fatigue, which drags question-bait (0.79) out of the top 14 entirely, so
+    // ten unrelated entries go in FIRST — HOOKLAB unshifts, so fatigue's
+    // 10-entry window no longer sees the pair while familyStats still counts
+    // them.
+    const angles = ["tactical"];
+    const pad = (n: number, fam: string, outcome: string): LedgerEntry[] =>
+      Array.from(
+        { length: n },
+        (_, i) =>
+          ({
+            ...LEDGER[1]!,
+            id: `${fam}_${outcome}_${i}`,
+            family: fam,
+            outcome,
+          }) as LedgerEntry,
+      );
+    const mixed: LedgerEntry[] = [
+      ...pad(10, "unrelated", "meh"),
+      ...pad(1, "engagement", "winner"),
+      ...pad(1, "engagement", "dead"),
+    ];
+
+    const seed = await runBoth(brief, angles, "{}", mixed, []);
+    const weak = seed.selected.find((s) => s.pattern.family === "engagement")!;
+    expect(weak.pattern.strength).toBeLessThan(0.8);
+    expect(weak.winRate).not.toBeNull();
+    expect(weak.personal).toBeGreaterThanOrEqual(0.45);
+    expect(weak.personal).toBeLessThan(0.6);
+    expect(weak.fatigue).toBeLessThan(1);
+
+    const reply = JSON.stringify({
+      hooks: [{ patternId: weak.pattern.id, text: "a drafted line", grounding: "g" }],
+      ctas: [],
+    });
+    const r = await runBoth(brief, angles, reply, mixed, []);
+    expect(r.myHooks).toEqual(r.theirs.result.hooks);
+
+    const drafted = r.myHooks.find((h) => h.mode === "ai")!;
+    expect(drafted.status).toBe("hypo");
+  });
+
   it("matches on an empty reply — every slot filled offline", async () => {
     const r = await runBoth(brief, [], JSON.stringify({ hooks: [], ctas: [] }), LEDGER, COMPS);
     expect(r.myHooks).toEqual(r.theirs.result.hooks);

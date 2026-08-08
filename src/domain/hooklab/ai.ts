@@ -33,7 +33,7 @@ import {
 import { offlineFill } from "./offline";
 import type { CompEntry, LedgerEntry, Medium } from "../../data/schemas/hooklab";
 import { KEYS } from "../../data/keys";
-import { readRaw } from "../../data/storage";
+import { readJSON, readRaw } from "../../data/storage";
 import { readSharedKeys } from "../../data/stackdata/shared";
 
 /**
@@ -51,6 +51,22 @@ export function readThinkingPref(): "on" | "off" {
     /* storage unavailable — fall through to the default */
   }
   return v === "off" ? "off" : "on";
+}
+
+/**
+ * The creator's brand-voice note, from HOOKLAB's own settings blob.
+ *
+ * Prompt rule 3 ("Respect brand voice notes if present") is inert without
+ * this. The legacy app read `settings.brandVoice` straight out of
+ * `hooklab_settings_v1`, and that blob still carries it for anyone migrating,
+ * so it is read rather than reintroduced as a new field.
+ */
+export function readBrandVoice(): string {
+  try {
+    return readJSON<{ brandVoice?: string }>(KEYS.hooklabSettings, {}).brandVoice || "";
+  } catch {
+    return "";
+  }
 }
 
 /** Caps, all verbatim from the legacy prompt assembly. */
@@ -151,7 +167,10 @@ export function buildAIPrompt(
         niche: brief.niche,
         platform: brief.platform,
         medium,
-        goal: brief.goal,
+        // `|| ""` rather than the bare value: JSON.stringify drops an
+        // undefined key entirely, so an omitted goal would remove the field
+        // from the prompt instead of sending the empty string legacy sends.
+        goal: brief.goal || "",
         brandVoice: brief.brandVoice || "",
         patterns: patternPayload,
         personalLedgerSample: ledgerSummary,
@@ -231,6 +250,36 @@ export const COMP_SIM_CAP = 0.4;
 export const COMP_SHOW_MIN = 0.15;
 
 /**
+ * The badge ladder for an AI-drafted hook.
+ *
+ * Deliberately NOT `statusFor` — the legacy AI path writes its own ladder
+ * inline (`Hooklabs/app.js:721-724`) and it differs from the offline one in
+ * both directions:
+ *
+ *  - it has NO "mixed personal signal" rung (`winRate != null && personal >=
+ *    0.45`), so a pattern with a weak personal record does not get promoted
+ *    to `market` here;
+ *  - it DOES have a comp rung, so a drafted line that closely echoes a stored
+ *    market comp reads as `market` even when the pattern itself is under the
+ *    0.8 strength bar.
+ *
+ * Using `statusFor` instead looked equivalent and wasn't: it produced a card
+ * whose evidence line said "Similar to market comp: …" under a HYPOTHESIS
+ * badge, and could over-claim `market` off a mixed personal record the legacy
+ * would have called a hypothesis.
+ *
+ * The offline backfill below is a different case and correctly keeps
+ * `statusFor` — there is no drafted text there, so there is no similarity to
+ * measure.
+ */
+function aiStatusFor(item: ScoredPattern, bestSim: number): BadgeStatus {
+  if (item.fatigue >= 1) return "fatigued";
+  if (item.winRate != null && item.winRate >= 0.5 && item.personal >= 0.6) return "proven";
+  if (item.pattern.strength >= 0.8 || bestSim > COMP_SHOW_MIN) return "market";
+  return "hypo";
+}
+
+/**
  * Turn a model reply into ranked candidates.
  *
  * `newId` is injected so the differential can compare ids; the legacy uses a
@@ -284,7 +333,7 @@ export function attachHooks(
       fatigue: item.fatigue,
       compMatch: bestSim > COMP_SHOW_MIN ? bestComp : null,
       grounding: h.grounding || (sourceMaterial ? "source material" : "topic brief"),
-      status: statusFor({ ...item, compMatch: bestSim > COMP_SHOW_MIN ? (bestComp ?? undefined) : undefined }),
+      status: aiStatusFor(item, bestSim),
       mode: "ai",
       angle: h.angle || null,
     });
