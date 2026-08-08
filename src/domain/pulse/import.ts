@@ -346,6 +346,31 @@ export function importSummary(r: BlastImportResult): string {
  * round trip; `platform|url` remains as the fallback for older backups whose
  * posts predate ids, and is only consulted when a url actually exists.
  */
+/**
+ * Coerce a post from a backup file or a foreign device into the shape the rest
+ * of the app can render.
+ *
+ * This is a system boundary: the JSON is arbitrary. Legacy got away without it
+ * because every field went through `esc()` on the way to innerHTML, which
+ * coerces null to "". React does no such thing — a post with no `caption`
+ * throws during render, and because the bad post is already persisted, that
+ * repeats on every load with the DELETE button unreachable behind the error.
+ */
+function normalizeImported(raw: Partial<PulsePost>, newId: () => string): PulsePost {
+  return {
+    ...raw,
+    id: raw.id ? String(raw.id) : newId(),
+    platform: String(raw.platform ?? ""),
+    url: String(raw.url ?? ""),
+    caption: String(raw.caption ?? ""),
+    hook: String(raw.hook ?? ""),
+    postedAt: Number(raw.postedAt) || Date.now(),
+    snapshots: Array.isArray(raw.snapshots) ? raw.snapshots : [],
+    outcome: raw.outcome ?? null,
+    ledgerLoggedAt: raw.ledgerLoggedAt ?? null,
+  };
+}
+
 export function importBackupPosts(
   current: PulsePost[],
   data: unknown,
@@ -364,11 +389,9 @@ export function importBackupPosts(
   let added = 0;
   for (const raw of incoming) {
     if (!raw || typeof raw !== "object") continue;
-    const p = { ...(raw as PulsePost) };
-    if (p.id && byId.has(p.id)) continue;
+    const p = normalizeImported(raw as Partial<PulsePost>, newId);
+    if (byId.has(p.id)) continue;
     if (p.url && byUrl.has(`${p.platform}|${p.url}`)) continue;
-    if (!p.id) p.id = newId();
-    if (!Array.isArray(p.snapshots)) p.snapshots = [];
     byId.add(p.id);
     if (p.url) byUrl.add(`${p.platform}|${p.url}`);
     posts.unshift(p);

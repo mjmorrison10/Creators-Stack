@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { SectionHeader } from "../../components/SectionHeader";
 import { Button, Card, StatusLine } from "../../components/ui";
 import { SECTIONS } from "../../sections";
@@ -18,6 +18,22 @@ import { useYouTube } from "./useYouTube";
 
 const meta = SECTIONS[3]!;
 
+/** A status line with a way to get rid of it. */
+function Dismissible({ children, onDismiss }: { children: React.ReactNode; onDismiss: () => void }) {
+  return (
+    <div className="flex items-start gap-2">
+      <span className="min-w-0 flex-1">{children}</span>
+      <button
+        onClick={onDismiss}
+        aria-label="Dismiss this message"
+        className="mt-1 text-faint transition hover:text-ink"
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
 /** Move focus to the next VISIBLE views input — collapsed cards are skipped. */
 function advanceFromCurrent(): void {
   const inputs = [...document.querySelectorAll<HTMLInputElement>("input[data-snap-input]")];
@@ -36,6 +52,19 @@ export function PulseSection() {
   const platformPick = usePlatformPick();
   const yt = useYouTube(pulse);
   const [showAdd, setShowAdd] = useState(false);
+
+  // Legacy checks what is due as soon as the section opens with a key present
+  // (app.js:1357). Without it a batch imported and left alone is never fetched,
+  // and the 1h/2h/6h checkpoints are gone for good — a reading at 168h covers
+  // them without backfilling, so the early-velocity signal is unrecoverable.
+  const booted = useRef(false);
+  useEffect(() => {
+    if (booted.current) return;
+    booted.current = true;
+    if (pulse.settingsRef.current.ytKey) void yt.checkDue(false);
+    // Once, at mount, after the healers have settled.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // One clock per render, so every card agrees on what "due" means.
   const now = Date.now();
@@ -69,7 +98,12 @@ export function PulseSection() {
       onRecord={(v) => pulse.record(p.id, { views: v }, "manual")}
       onAdvance={advanceFromCurrent}
       onCheck={() => void yt.checkOne(p, true)}
-      onSetLink={(url) => pulse.update(p.id, (x) => ({ ...x, url }))}
+      onSetLink={(url) => {
+        pulse.update(p.id, (x) => ({ ...x, url }));
+        // A pasted link is the missing piece for auto-tracking, so use it
+        // straight away rather than waiting for the next section open.
+        if (url && ytId(url) && hasKey) void yt.checkOne({ ...p, url }, false);
+      }}
       onOutcome={(o) => pulse.setOutcome(p.id, o)}
       onStopTracking={() => pulse.stopTracking(p.id)}
       onDelete={() => pulse.deleteEverywhere(p.id)}
@@ -80,12 +114,35 @@ export function PulseSection() {
     <>
       <SectionHeader name={meta.name} tagline={meta.tagline} accent={meta.accent} />
 
-      {pulse.notice && <StatusLine tone={pulse.notice.tone}>{pulse.notice.text}</StatusLine>}
-      {pulse.autoNotice && <StatusLine tone="ok">{pulse.autoNotice}</StatusLine>}
-      {yt.status && <StatusLine tone={yt.status.tone}>{yt.status.text}</StatusLine>}
+      {/* Legacy toasts faded after a few seconds; these persist until replaced,
+          so each one carries a way to dismiss it rather than stacking three
+          stale banners above the list. */}
+      {pulse.notice && (
+        <Dismissible onDismiss={pulse.clearNotice}>
+          <StatusLine tone={pulse.notice.tone}>{pulse.notice.text}</StatusLine>
+        </Dismissible>
+      )}
+      {pulse.autoNotice && (
+        <Dismissible onDismiss={pulse.clearAutoNotice}>
+          <StatusLine tone="ok">{pulse.autoNotice}</StatusLine>
+        </Dismissible>
+      )}
+      {yt.status && (
+        <Dismissible onDismiss={yt.clearStatus}>
+          <StatusLine tone={yt.status.tone}>{yt.status.text}</StatusLine>
+        </Dismissible>
+      )}
 
       <div className="mb-5 flex flex-wrap items-center gap-2">
-        <Button onClick={pulse.importBlast} variant="primary">
+        <Button
+          onClick={() => {
+            pulse.importBlast();
+            // Legacy checks after an import that added posts (app.js:818) —
+            // the point of importing is to start measuring.
+            void yt.checkDue(false);
+          }}
+          variant="primary"
+        >
           IMPORT FROM BLAST
         </Button>
         <Button onClick={() => setShowAdd(!showAdd)}>{showAdd ? "HIDE ADD" : "ADD MANUALLY"}</Button>

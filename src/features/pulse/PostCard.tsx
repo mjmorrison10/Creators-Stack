@@ -37,20 +37,42 @@ export function ViewsInput({
   const last = latestSnap(post);
   const base = last ? String(last.views) : "";
   const [value, setValue] = useState(base);
+  const [edited, setEdited] = useState(false);
+  const [seenBase, setSeenBase] = useState(base);
+
+  // Follow a reading that arrived from somewhere else — an auto check, a
+  // cross-tab write — unless the creator is mid-edit.
+  //
+  // Without this the box keeps the OLD number while the card shows the new one,
+  // looking like unsubmitted input. Pressing RECORD (or Enter, walking down the
+  // list) then writes the stale figure as a fresh manual reading, which becomes
+  // `latestSnap` — and if that post was auto-promoted, the very next
+  // `syncAutoWinners` drops it below the cutoff, retracts its ledger row and
+  // tombstones it, so a sync can't restore it either.
+  if (base !== seenBase) {
+    setSeenBase(base);
+    if (!edited) setValue(base);
+  }
 
   const step = (dir: number): void => {
     const cur = value.trim() === "" || Number.isNaN(Number(value)) ? Number(base) || 0 : Number(value);
     setValue(String(Math.max(0, cur + dir * stepFor(cur))));
+    setEdited(true);
   };
 
   const submit = (advance: boolean): void => {
     const v = value.trim();
     if (v === "" || Number.isNaN(Number(v))) return;
     onRecord(Number(v));
+    // The submitted value becomes the new base, so the box is no longer "edited"
+    // and will follow the next reading that arrives.
+    setEdited(false);
     if (advance) onAdvance?.();
   };
 
-  const changed = base !== "" && value !== base;
+  // Highlight only what the CREATOR changed — a value that merely trails a
+  // freshly fetched reading is not unsubmitted input.
+  const changed = edited && value !== base;
 
   return (
     <span className="flex items-center gap-1">
@@ -73,7 +95,10 @@ export function ViewsInput({
         inputMode="numeric"
         placeholder={placeholder}
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => {
+          setValue(e.target.value);
+          setEdited(true);
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();

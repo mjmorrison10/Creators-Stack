@@ -8,6 +8,7 @@ import {
   writeSessionJSON,
 } from "../../data/storage";
 import { tombstone } from "../../data/stackdata/tombstones";
+import { resolveKeys } from "../../data/stackdata/shared";
 import type { PulsePost, PulseSettings } from "../../data/schemas/pulse";
 import { healImportTwins, migrateClipIds } from "../../domain/pulse/healers";
 import {
@@ -49,13 +50,31 @@ export interface Notice {
  * (the defect a Phase 5 review found in the BLAST equivalent).
  */
 export function usePulse() {
-  const [posts, setPosts] = useState<PulsePost[]>(() =>
-    readJSON<PulsePost[]>(KEYS.pulsePosts, []),
+  // Healed in the INITIALIZER, not an effect: an effect runs after React
+  // commits and the browser paints, so the creator would see — and could click
+  // into — a split clip or a duplicate twin for a frame. Both healers are pure,
+  // so this is a safe place for them; the effect below only persists the result.
+  const [boot] = useState(() => {
+    const loaded = readJSON<PulsePost[]>(KEYS.pulsePosts, []);
+    const start = Array.isArray(loaded) ? loaded : [];
+    const migrated = migrateClipIds(start);
+    const healed = healImportTwins(migrated.posts);
+    return { ...healed, changed: migrated.changed };
+  });
+  const [posts, setPosts] = useState<PulsePost[]>(boot.posts);
+  // The YouTube key is SHARED across the stack, not PULSE's own. Settings
+  // writes it to `stack_settings_v1`; reading only `pulse_settings_v1` here
+  // meant a key entered in Settings never reached this section and
+  // auto-tracking was dead for anyone who had not previously run legacy PULSE.
+  // `resolveKeys` also promotes a legacy local-only key into the shared store,
+  // and makes the shared value win — so clearing the key in Settings actually
+  // stops this section using it.
+  const [settings, setSettings] = useState<PulseSettings>(() =>
+    resolveKeys(
+      { ...DEFAULT_SETTINGS, ...readJSON<Partial<PulseSettings>>(KEYS.pulseSettings, {}) },
+      ["ytKey"],
+    ),
   );
-  const [settings, setSettings] = useState<PulseSettings>(() => ({
-    ...DEFAULT_SETTINGS,
-    ...readJSON<Partial<PulseSettings>>(KEYS.pulseSettings, {}),
-  }));
   const [promoted, setPromoted] = useState<Record<string, true>>({});
   const [notice, setNotice] = useState<Notice | null>(null);
   const [autoNotice, setAutoNotice] = useState<string | null>(null);
@@ -67,6 +86,32 @@ export function usePulse() {
   const adopt = useCallback((next: PulsePost[]) => {
     postsRef.current = next;
     setPosts(next);
+  }, []);
+
+  /**
+   * Recompute the auto-promoted set and surface what changed.
+   *
+   * Shared by `commit` and the cross-tab subscriber: without it there, a legacy
+   * tab recording a reading that drops a post out of the top decile would leave
+   * this tab showing "AUTO IN HOOKLAB" on a hook whose ledger row the other tab
+   * had already retracted.
+   */
+  const refreshAuto = useCallback((next: PulsePost[]) => {
+    try {
+      const r = syncAutoWinners(next);
+      setPromoted(r.promoted);
+      if (r.delta) {
+        for (const id of r.delta.tombstone) tombstone("hooklabLedger", id);
+        // Only replace the notice when there is something to say — a
+        // figures-only refresh would otherwise clear a promotion message the
+        // creator has not read yet.
+        const msg = announceAuto(r.delta);
+        if (msg) setAutoNotice(msg);
+      }
+    } catch {
+      // Badges are cosmetic; a failure here must not lose a posts write that
+      // already landed, nor block the section.
+    }
   }, []);
 
   /**
@@ -86,20 +131,10 @@ export function usePulse() {
         setNotice({ tone: "error", text: SAVE_FAILED });
       }
       adopt(next);
-
-      try {
-        const r = syncAutoWinners(next);
-        setPromoted(r.promoted);
-        if (r.delta) {
-          for (const id of r.delta.tombstone) tombstone("hooklabLedger", id);
-          setAutoNotice(announceAuto(r.delta));
-        }
-      } catch {
-        // A failure here must not lose the posts write that already landed.
-      }
+      refreshAuto(next);
       return ok;
     },
-    [adopt],
+    [adopt, refreshAuto],
   );
 
   const saveSettings = useCallback((next: PulseSettings) => {
@@ -113,44 +148,23 @@ export function usePulse() {
   }, []);
 
   /**
-   * Boot: heal, THEN paint.
-   *
-   * Both healers repair damage earlier importers did, and they run before the
-   * first render so the creator never sees — or acts on — a split clip or a
-   * duplicate twin. Order matters: `migrateClipIds` unifies ids so
-   * `healImportTwins`, which groups by id, can then see the twins at all.
+   * Persist what the initializer healed, and compute the auto set for the
+   * badges. The heal itself already happened, before the first paint.
    */
   useEffect(() => {
-    const loaded = readJSON<PulsePost[]>(KEYS.pulsePosts, []);
-    const start = Array.isArray(loaded) ? loaded : [];
-
-    const migrated = migrateClipIds(start);
-    const healed = healImportTwins(migrated.posts);
-    for (const id of healed.dropped) tombstone("pulsePost", id);
-
-    if (migrated.changed || healed.merged) {
-      commit(healed.posts);
-      if (healed.merged) {
+    for (const id of boot.dropped) tombstone("pulsePost", id);
+    if (boot.changed || boot.merged) {
+      commit(boot.posts);
+      if (boot.merged) {
         setNotice({
           tone: "ok",
-          text: `Merged ${healed.merged} duplicate import${
-            healed.merged > 1 ? "s" : ""
+          text: `Merged ${boot.merged} duplicate import${
+            boot.merged > 1 ? "s" : ""
           } — one post per clip per platform.`,
         });
       }
     } else {
-      // Nothing to heal, but the auto set still needs computing for the badges.
-      adopt(start);
-      try {
-        const r = syncAutoWinners(start);
-        setPromoted(r.promoted);
-        if (r.delta) {
-          for (const id of r.delta.tombstone) tombstone("hooklabLedger", id);
-          setAutoNotice(announceAuto(r.delta));
-        }
-      } catch {
-        /* badges are cosmetic; a failure here must not block the section */
-      }
+      refreshAuto(boot.posts);
     }
     // Intentionally once, at mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -159,8 +173,17 @@ export function usePulse() {
   // Another tab — or a still-deployed legacy PULSE — writing posts shows up
   // here without a refresh.
   useEffect(
-    () => subscribe(KEYS.pulsePosts, () => adopt(readJSON<PulsePost[]>(KEYS.pulsePosts, []))),
-    [adopt],
+    () =>
+      subscribe(KEYS.pulsePosts, () => {
+        const next = readJSON<PulsePost[]>(KEYS.pulsePosts, []);
+        // Our own write re-enters here synchronously. Skipping the echo saves a
+        // redundant state pass per save, and — more importantly — keeps the
+        // badge recompute for writes that actually came from elsewhere.
+        if (next === postsRef.current) return;
+        adopt(next);
+        refreshAuto(next);
+      }),
+    [adopt, refreshAuto],
   );
 
   const update = useCallback(
@@ -294,14 +317,18 @@ export function useExpanded() {
     return out;
   });
 
+  const ref = useRef(keys);
+
+  // The write stays OUT of the updater: a render React discards still leaves a
+  // side effect behind, so `pulse_expanded_v1` would describe a UI state that
+  // never rendered. `usePlatformPick` below already does it this way.
   const toggle = useCallback((k: string) => {
-    setKeys((cur) => {
-      const next = { ...cur };
-      if (next[k]) delete next[k];
-      else next[k] = true;
-      writeSessionJSON(SESSION_KEYS.pulseExpanded, Object.keys(next));
-      return next;
-    });
+    const next = { ...ref.current };
+    if (next[k]) delete next[k];
+    else next[k] = true;
+    ref.current = next;
+    writeSessionJSON(SESSION_KEYS.pulseExpanded, Object.keys(next));
+    setKeys(next);
   }, []);
 
   return { keys, toggle };

@@ -41,8 +41,15 @@ export function migrateClipIds(posts: PulsePost[]): { posts: PulsePost[]; change
     else buckets.set(k, [p]);
   }
 
-  /** postId → the clipId it should end up with. */
-  const rewrite = new Map<string, string>();
+  // Keyed by ARRAY INDEX rather than post id. Ids are supposed to be unique,
+  // but a pathological sync can produce two posts sharing one — and keying by
+  // id would then apply one rewrite to both, stamping a `clipIdPrev` on a post
+  // that was already canonical. Legacy rewrote each object independently.
+  const indexOf = new Map<PulsePost, number>();
+  posts.forEach((p, i) => indexOf.set(p, i));
+
+  /** array index → the clipId that post should end up with. */
+  const rewrite = new Map<number, string>();
   let changed = 0;
 
   for (const list of buckets.values()) {
@@ -65,7 +72,7 @@ export function migrateClipIds(posts: PulsePost[]): { posts: PulsePost[]; change
 
     for (const p of list) {
       if (p.clipId === canonical) continue;
-      rewrite.set(p.id, canonical);
+      rewrite.set(indexOf.get(p)!, canonical);
       changed++;
     }
   }
@@ -73,8 +80,8 @@ export function migrateClipIds(posts: PulsePost[]): { posts: PulsePost[]; change
   if (!changed) return { posts, changed: 0 };
 
   return {
-    posts: posts.map((p) => {
-      const next = rewrite.get(p.id);
+    posts: posts.map((p, i) => {
+      const next = rewrite.get(i);
       if (next === undefined) return p;
       // A post in the bucket with NO clipId also lands here — it adopts the
       // canonical id, and gets no `clipIdPrev` because there was nothing to
@@ -159,8 +166,9 @@ export function healImportTwins(posts: PulsePost[]): HealResult {
     else groups.set(k, [p]);
   }
 
-  const drop = new Set<string>();
-  const replacement = new Map<string, PulsePost>();
+  const drop = new Set<PulsePost>();
+  const droppedIds: string[] = [];
+  const replacement = new Map<PulsePost, PulsePost>();
   let merged = 0;
 
   for (const list of groups.values()) {
@@ -190,17 +198,20 @@ export function healImportTwins(posts: PulsePost[]): HealResult {
       for (const f of PATTERN_FIELDS) {
         if (!keep[f] && p[f]) keep[f] = p[f];
       }
-      drop.add(p.id);
+      drop.add(p);
+      droppedIds.push(p.id);
       merged++;
     }
-    replacement.set(keep.id, keep);
+    replacement.set(ranked[0]!, keep);
   }
 
   if (!merged) return { posts, merged: 0, dropped: [] };
 
   return {
-    posts: posts.filter((p) => !drop.has(p.id)).map((p) => replacement.get(p.id) ?? p),
+    // Identity-keyed, so two posts sharing an id can't drop or replace each
+    // other — only the exact objects the grouping selected are affected.
+    posts: posts.filter((p) => !drop.has(p)).map((p) => replacement.get(p) ?? p),
     merged,
-    dropped: [...drop],
+    dropped: droppedIds,
   };
 }

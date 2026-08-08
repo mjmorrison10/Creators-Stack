@@ -30,12 +30,25 @@ export function tombKey(kind: TombstoneKind, id: string | number): string {
   return `${kind}:${id}`;
 }
 
-/** Record a delete. Must be called for anything that syncs and can be removed. */
+/**
+ * Record a delete. Must be called for anything that syncs and can be removed.
+ *
+ * A quota failure is swallowed, exactly as legacy does (stackdata.js:203).
+ * Returns false when the record didn't land. This is deliberately non-fatal:
+ * callers reach it while deleting things, and a full store is the one state
+ * where the user most needs the delete to go through. Throwing here took the
+ * whole section down on mount when the boot healers tombstoned their merges —
+ * on a full store that left no way to delete anything to free space.
+ */
 export function tombstone(kind: TombstoneKind, id: string | number | null | undefined): boolean {
   if (!kind || id == null) return false;
   const map = readTombstones();
   map[tombKey(kind, id)] = Date.now();
-  writeJSON(KEYS.stackTombstones, pruneTomb(map));
+  try {
+    writeJSON(KEYS.stackTombstones, pruneTomb(map));
+  } catch {
+    return false;
+  }
   return true;
 }
 
