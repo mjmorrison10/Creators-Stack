@@ -302,8 +302,40 @@ Locked-in decisions:
     clipboard delivery; the delete tombstone is written after the save that
     can fail, not before.
 
-- **Phase 5 (in progress):** BLAST — the queue over `blast_queue_v1`, per-platform
-  caption limits, the forward-only status machine, web intents and mobile app
-  schemes, AI suggestions carrying hooklab-winner evidence, ffmpeg 9:16 crop,
-  and the `blast_session_v1` projection writer wired to every Quick-clip
-  mutation through a single writer module.
+- **Phase 5 — BLAST. Parts 1–6 done** (`ab1a4a9`, `3a2e5fd`, `87b6fe1`,
+  `43115fc`, `79547e5`, `510ce46`).
+  - Platform table, caption rules and the forward-only status machine; queue
+    over `blast_queue_v1` with the `blast_session_v1` projection; presets and
+    compose targets; caption editor and posting flow; AI suggestions grounded
+    in the HOOKLAB ledger; RECALL → BLAST handoff.
+  - **A Fable audit caught `queue.ts` shipping untested.** It was swept into
+    the Phase 4 review-fix commit by `git add -A` and pushed under a message
+    about RECALL, with zero tests — and it is the projection writer the plan
+    names as a top risk. Nothing called it yet, so nothing was broken. Closed
+    by part 2, along with two divergences the same audit found: batchCount was
+    read from inside the queue blob rather than its own key (a synced queue
+    would have silently changed this device's setting), and `saveQueue` had no
+    quota shedding, so a full store lost the write outright.
+  - **Single-writer property holds:** only `queue.ts` touches
+    `blast_session_v1`, and every UI mutation funnels through one `commit` in
+    `useBlast`. Verified by grep and by headless checks asserting the
+    projection after each action — including that editing a QUEUED clip leaves
+    the Quick projection untouched.
+  - **Legacy comment/code mismatch recorded, not resolved:** the quota
+    shedder's comment says "oldest clips first" while its loop sheds the newest
+    first. Behavior ported; only our comment is corrected.
+  - **Two pairs of mutually-redundant guards found by mutation testing** — the
+    status machine's `>` plus its terminal-name check, and the session
+    migration's queue-exists plus untouched checks. Each is individually
+    removable with no test failing; removing both in either pair breaks a real
+    contract. Both pairs kept, documented, and now covered by tests that
+    exercise each guard as the deciding factor.
+  - 416 unit tests. Headless: 33 BLAST UI checks, 14 AI checks with the
+    provider stubbed by interception, 11 handoff checks. Bundle 433 → 460kB.
+
+- **Phase 5 remaining:** ffmpeg 9:16 crop (lazy, from the vendored core), then
+  `/code-review` at the phase boundary.
+
+- **Phase 6 (next):** PULSE — import-from-blast, by-clip and by-platform views,
+  YouTube auto-stats, outcome → ledger write, auto-promotion with its gates,
+  boot healers, and the link-less-post import bug fix.
