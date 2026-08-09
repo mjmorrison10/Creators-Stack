@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A superseded run has nothing to tell us, so let a new push cancel it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The differential unit tests read the ORIGINAL apps off disk and diff
+      # the ports against them — that is what makes them differentials rather
+      # than pinned snapshots. They resolve `../../../<app>/…`, i.e. siblings
+      # of the workspace, so a runner that checks out only this repo fails
+      # with ENOENT before a single test runs.
+      #
+      # Cloned, not vendored: a copy checked into this repo would drift from
+      # what is actually deployed, and a differential against a stale copy
+      # proves nothing. Default branch is deliberate for the same reason —
+      # deployed IS main. `actions/checkout` cannot write outside the
+      # workspace, so these are plain clones.
+      - name: Clone the legacy apps the differentials diff against
+        run: |
+          for repo in recall Hooklabs blast pulse; do
+            git clone --depth 1 "https://github.com/mjmorrison10/$repo" "../$repo"
+          done
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+      # Chromium only — the suite pins one engine deliberately, and installing
+      # the other two would triple the download for coverage nothing asserts.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+
+      # The trace is the whole reason a CI failure here is debuggable: the
+      # config keeps one on failure, and without this it dies with the runner.
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
