@@ -781,3 +781,25 @@ Locked-in decisions:
     `pulse.spec` asserts the exact export envelope and filename and a
     round-trip that includes a link-less post.
   - Gate: 748 unit tests, **24 e2e specs**, typecheck and build green.
+
+- **Deployed and verified live (PR #1 squash-merged as `abf6df0`).**
+  - Pages source was set to GitHub Actions by the user; the deploy workflow
+    ran typecheck, 748 unit tests, 24 e2e specs, then built and published.
+  - Live verification polled `https://mjmorrison10.github.io/Creators-Stack/`
+    with a cache-buster until the index.html being SERVED referenced the
+    bundle that had just been built — not "the URL returns 200", which was
+    always true and would have passed against the previous deploy. Matched on
+    the first poll.
+  - Also verified live: every referenced asset resolves under the project
+    base path, the manifest serves and installs standalone with both icons,
+    the service worker ships a precache manifest that contains the app shell
+    and **no vendor asset**, and the ffmpeg core is still reachable on demand
+    at `vendor/ffmpeg-core/` — excluded from precache, not lost. (The first
+    run of that check failed on a path I had guessed rather than read; the
+    code was right and the check was wrong.)
+  - All four legacy apps still serve. The rollback is intact.
+  - **Not verifiable from here:** a headless browser cannot reach the public
+    internet from this sandbox (Chromium fails with ERR_CONNECTION_RESET even
+    through the egress proxy), so "the app boots and shows your existing
+    data" is the user's same-device check, not something this session proved.
+    Stated plainly rather than implied by the passing fetch checks.
