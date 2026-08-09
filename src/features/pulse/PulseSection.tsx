@@ -15,6 +15,8 @@ import { HandoffLink } from "../../components/HandoffLink";
 import { PostCard, ViewsInput } from "./PostCard";
 import { AddPostForm } from "./AddPostForm";
 import { usePulse, useExpanded, usePlatformPick } from "./usePulse";
+import { downloadJson, todayStamp } from "../../data/download";
+import { isStackBackup } from "../../data/stackdata/backup";
 import { useYouTube } from "./useYouTube";
 
 const meta = SECTIONS[3]!;
@@ -53,6 +55,7 @@ export function PulseSection() {
   const platformPick = usePlatformPick();
   const yt = useYouTube(pulse);
   const [showAdd, setShowAdd] = useState(false);
+  const backupInput = useRef<HTMLInputElement>(null);
 
   // Legacy checks what is due as soon as the section opens with a key present
   // (app.js:1357). Without it a batch imported and left alone is never fetched,
@@ -158,6 +161,54 @@ export function PulseSection() {
         <Button disabled={!hasKey || yt.busy} onClick={() => void yt.checkDue(true)}>
           {yt.busy ? "CHECKING…" : "CHECK YOUTUBE"}
         </Button>
+        {/* PULSE's own backup, in the legacy envelope and under the legacy
+            filename, so a file exported by the old app imports here and one
+            exported here imports there. The importer existed from Phase 6 but
+            had no caller — found by the pre-merge audit. */}
+        <Button
+          disabled={pulse.posts.length === 0}
+          onClick={() =>
+            downloadJson(
+              { posts: pulse.posts, exportedAt: new Date().toISOString() },
+              `pulse-backup-${todayStamp()}.json`,
+            )
+          }
+        >
+          EXPORT BACKUP
+        </Button>
+        <Button onClick={() => backupInput.current?.click()}>IMPORT BACKUP</Button>
+        <input
+          ref={backupInput}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (!f) return;
+            void f
+              .text()
+              .then((raw) => {
+                const data: unknown = JSON.parse(raw);
+                // A whole-stack backup picked here would replace data in all
+                // four sections. Legacy restored it in place behind a
+                // confirm; the unified app has a real restore flow with a
+                // contents summary, so this points there instead of doing
+                // something that big from a secondary button.
+                if (isStackBackup(data)) {
+                  pulse.setNotice({
+                    tone: "error",
+                    text: "That is a whole-stack backup, not a PULSE one — restore it from Settings, where it shows you what it contains first.",
+                  });
+                  return;
+                }
+                pulse.importBackup(data);
+              })
+              .catch(() =>
+                pulse.setNotice({ tone: "error", text: "That file isn't readable JSON." }),
+              );
+          }}
+        />
         <span className="ml-auto flex gap-1">
           {(["clips", "platforms"] as const).map((v) => (
             <button

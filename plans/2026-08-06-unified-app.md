@@ -748,3 +748,36 @@ Locked-in decisions:
     new bundle is live, same-device check that existing data appears and that
     a legacy app still reads post-mutation storage, then the Fable final
     audit against the data-compatibility checklist.
+
+- **Phase 10b — the two data-compatibility FAILs from the final audit.** The
+  pre-merge audit ran the whole checklist against the repo and found nine of
+  eleven items PASS and two FAIL. Both were the same species: a contract the
+  port half-implemented, where the READ side existed and looked complete.
+
+  - **`blastClip` tombstones were never written.** The merge engine has read
+    them since Phase 1; nothing in the port ever wrote one. Legacy writes on
+    per-clip remove (blast/app.js:885) and on queue clear (app.js:2106).
+    Without it, deleting a clip in BLAST and then syncing brings the clip
+    straight back from the other device — precisely the failure tombstones
+    exist to prevent, and invisible until a second device is involved, which
+    is why no test caught it. `useBlast.remove` now tombstones.
+  - **Legacy's clear-queue had no port at all.** A creator who batch-sent 24
+    clips from RECALL could only remove them one at a time. Added with
+    two-step confirm semantics matching RECALL's bin and source deletes, and
+    tombstoning every non-Quick key.
+  - **PULSE could not export a backup**, and `usePulse.importBackup` — built
+    in Phase 6, returned by the hook — had no caller anywhere. So the one
+    section whose data is hardest to reconstruct had neither half of its
+    backup story wired. Now exports `{posts, exportedAt}` as
+    `pulse-backup-YYYY-MM-DD.json`, legacy-exact, and imports it back.
+    **Recorded deviation:** a whole-stack backup picked in PULSE's import
+    routes the creator to Settings rather than restoring in place as legacy
+    did — the unified app has a real restore flow that shows the contents
+    first, and replacing all four sections from a secondary button is too
+    much to do behind one click.
+  - Tests: `blast.spec` asserts the tombstone on remove, and a new separate
+    test covers CLEAR QUEUE (separate because the sequential test removes its
+    only queued clip partway through, so a clear there would assert nothing).
+    `pulse.spec` asserts the exact export envelope and filename and a
+    round-trip that includes a link-less post.
+  - Gate: 748 unit tests, **24 e2e specs**, typecheck and build green.

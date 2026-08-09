@@ -16,6 +16,7 @@ import {
 } from "../../domain/blast/queue";
 import { bumpStatus, type PostStatus } from "../../domain/blast/platforms";
 import { consumeHandoff } from "../../domain/blast/handoff";
+import { tombstone } from "../../data/stackdata/tombstones";
 
 const SAVE_FAILED = "Couldn't save — storage is full. Mark a few clips posted and clear them.";
 
@@ -31,6 +32,7 @@ export interface BlastState {
   setStatus: (key: string, platform: string, next: PostStatus, explicit?: boolean) => void;
   reset: () => void;
   remove: (key: string) => void;
+  clearQueue: () => void;
   setBatchCount: (n: number) => void;
   setDefaultPlatforms: (names: string[] | null) => void;
 }
@@ -149,11 +151,34 @@ export function useBlast(): BlastState {
 
   const remove = useCallback(
     (key: string) => {
+      // The queue syncs, so a delete needs a tombstone or the next merge with
+      // a device that still has the clip brings it straight back — legacy
+      // learned this the hard way and says so at blast/app.js:885. The port
+      // read `blastClip` tombstones in the merge engine but never wrote one.
+      tombstone("blastClip", key);
       commit(removePost(queueRef.current, key), null);
       setActiveKey((k) => (k === key ? QUICK_KEY : k));
     },
     [commit],
   );
+
+  /**
+   * Clear every queued clip, keeping Quick. Legacy's `#queueClear`
+   * (blast/app.js:2104) had no port at all — a creator who batch-sent 24
+   * clips from RECALL could only remove them one at a time.
+   *
+   * Tombstones each key for the same reason `remove` does.
+   */
+  const clearQueue = useCallback(() => {
+    const doomed = queueRef.current.clips.filter((p) => p.key !== QUICK_KEY);
+    if (!doomed.length) return;
+    for (const p of doomed) tombstone("blastClip", p.key);
+    commit(
+      { ...queueRef.current, clips: queueRef.current.clips.filter((p) => p.key === QUICK_KEY) },
+      null,
+    );
+    setActiveKey(QUICK_KEY);
+  }, [commit]);
 
   const setBatchCount = useCallback(
     (n: number) => {
@@ -192,6 +217,7 @@ export function useBlast(): BlastState {
     setStatus,
     reset,
     remove,
+    clearQueue,
     setBatchCount,
     setDefaultPlatforms,
   };

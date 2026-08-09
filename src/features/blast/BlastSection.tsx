@@ -28,6 +28,9 @@ function QueueRail({
 }: {
   blast: ReturnType<typeof useBlast>;
 }) {
+  const [confirming, setConfirming] = useState(false);
+  const queued = blast.queue.clips.filter((p) => p.key !== QUICK_KEY).length;
+
   return (
     <div className="mb-5">
       <h2 className="mb-2 font-mono text-[10px] tracking-[0.14em] text-faint">
@@ -64,6 +67,31 @@ function QueueRail({
           );
         })}
       </ul>
+
+      {/* Legacy's #queueClear (blast/app.js:2104) had no port, so a creator
+          who batch-sent 24 clips from RECALL could only remove them one at a
+          time. Two-step rather than a window.confirm, matching how RECALL's
+          bin and source deletes already ask. */}
+      {queued > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {confirming ? (
+            <>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  setConfirming(false);
+                  blast.clearQueue();
+                }}
+              >
+                CLEAR {queued} — CAPTIONS ARE LOST
+              </Button>
+              <Button onClick={() => setConfirming(false)}>KEEP</Button>
+            </>
+          ) : (
+            <Button onClick={() => setConfirming(true)}>CLEAR QUEUE</Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

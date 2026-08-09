@@ -309,5 +309,61 @@ test("PULSE heals legacy data, tracks readings and promotes into HOOKLAB", async
     ).toBeTruthy();
   });
 
+  await test.step("PULSE's own backup exports the legacy envelope and imports it back", async () => {
+    // The importer was ported in Phase 6 and had no caller until the
+    // pre-merge audit found it: PULSE could not export a backup at all, and
+    // its import was dead code. The envelope and filename are legacy-exact so
+    // a file from the old app opens here and one from here opens there.
+    const [dl] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByRole("button", { name: "EXPORT BACKUP" }).click(),
+    ]);
+    expect(
+      /^pulse-backup-\d{4}-\d{2}-\d{2}\.json$/.test(dl.suggestedFilename()),
+      `filename is legacy-exact (${dl.suggestedFilename()})`,
+    ).toBeTruthy();
+
+    let raw = "";
+    for await (const c of await dl.createReadStream()) raw += c;
+    const env = JSON.parse(raw) as { posts: unknown[]; exportedAt: string };
+    expect(
+      JSON.stringify(Object.keys(env).sort()) === JSON.stringify(["exportedAt", "posts"]),
+      "envelope is {posts, exportedAt}",
+    ).toBeTruthy();
+    expect(env.posts.length > 0, "and it carries the tracked posts").toBeTruthy();
+
+    // Round-trip: a link-less post must come back, which is the legacy bug
+    // this port fixed (pulse/app.js:1264 dropped every one of them).
+    const linkless = {
+      id: "restored_1",
+      platform: "Threads",
+      url: "",
+      caption: "a post with no link yet",
+      hook: "a post with no link yet",
+      postedAt: Date.now() - 3600000,
+      snapshots: [],
+      outcome: null,
+      ledgerLoggedAt: null,
+    };
+    await page.setInputFiles(
+      'input[type="file"][accept*="json"]',
+      {
+        name: "pulse-backup-restore.json",
+        mimeType: "application/json",
+        buffer: Buffer.from(
+          JSON.stringify({ posts: [linkless], exportedAt: new Date().toISOString() }),
+        ),
+      },
+    );
+    await page.waitForTimeout(400);
+    const after = (await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("pulse_posts_v1") ?? "[]"),
+    )) as { id: string; url: string }[];
+    expect(
+      after.some((p) => p.id === "restored_1"),
+      "a link-less post survives the round trip rather than being silently dropped",
+    ).toBeTruthy();
+  });
+
   expect(errors.length === 0, `no console or page errors — ${errors.slice(0, 3).join(" | ")}`).toBeTruthy();
 });

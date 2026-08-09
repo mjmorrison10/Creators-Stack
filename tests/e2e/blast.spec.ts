@@ -212,6 +212,18 @@ test("BLAST keeps the blast_session_v1 projection in step with every mutation", 
     const q3 = await queue();
     expect(!q3.clips.some((c: any) => c.key === "ep41@41@2"), "removes the queued clip").toBeTruthy();
     expect(q3.clips[0].key === "quick", "keeps the Quick post, always first").toBeTruthy();
+
+    // Without this the delete does not survive a sync: the next merge with a
+    // device that still has the clip brings it straight back. The merge
+    // engine READ blastClip tombstones from the first day and nothing ever
+    // wrote one — caught by the pre-merge data-compatibility audit.
+    const tombs = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("stack_tombstones_v1") ?? "{}"),
+    );
+    expect(
+      Object.keys(tombs).some((k) => k === "blastClip:ep41@41@2"),
+      `the delete is tombstoned so sync cannot resurrect it — got ${JSON.stringify(Object.keys(tombs))}`,
+    ).toBeTruthy();
   });
 
   await test.step("reset clears Quick only", async () => {
@@ -229,5 +241,56 @@ test("BLAST keeps the blast_session_v1 projection in step with every mutation", 
   expect(
     errors.length === 0,
     `no console or page errors — ${errors.slice(0, 3).join(" | ")}`,
+  ).toBeTruthy();
+});
+
+/**
+ * CLEAR QUEUE gets its own test with its own seed.
+ *
+ * The sequential test above removes its only queued clip partway through, so
+ * by the end there is nothing left to clear — and a "clear" that runs against
+ * an empty queue asserts nothing. Two clips here, and both must end up
+ * tombstoned.
+ */
+test("CLEAR QUEUE empties the batch, keeps Quick, and tombstones every key", async ({ page }) => {
+  const second = { ...QUEUE.clips[1]!, key: "ep41@88@3", srcTitle: "Episode 88" };
+  await page.addInitScript(
+    (q) => localStorage.setItem("blast_queue_v1", JSON.stringify(q)),
+    { ...QUEUE, clips: [...QUEUE.clips, second] },
+  );
+
+  await page.goto("#/blast");
+  await page.getByRole("heading", { name: "BLAST" }).waitFor();
+
+  const queue = () =>
+    page.evaluate(() => JSON.parse(localStorage.getItem("blast_queue_v1") ?? "null"));
+
+  const before = await queue();
+  const queuedKeys = before.clips
+    .filter((c: { key: string }) => c.key !== "quick")
+    .map((c: { key: string }) => c.key);
+  expect(queuedKeys.length === 2, "two clips are queued to start").toBeTruthy();
+
+  // Two-step, like RECALL's bin and source deletes: captions are unrecoverable.
+  await page.getByRole("button", { name: "CLEAR QUEUE" }).click();
+  await page.getByRole("button", { name: /^CLEAR 2 — CAPTIONS ARE LOST$/ }).click();
+  await page.waitForTimeout(300);
+
+  const after = await queue();
+  expect(after.clips.length === 1, "only Quick is left").toBeTruthy();
+  expect(after.clips[0].key === "quick", "and it is Quick").toBeTruthy();
+
+  const tombs = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("stack_tombstones_v1") ?? "{}"),
+  );
+  for (const k of queuedKeys) {
+    expect(
+      Object.keys(tombs).includes(`blastClip:${k}`),
+      `cleared clip ${k} is tombstoned, so a sync cannot resurrect it`,
+    ).toBeTruthy();
+  }
+  expect(
+    !Object.keys(tombs).includes("blastClip:quick"),
+    "Quick is never tombstoned — it is permanent",
   ).toBeTruthy();
 });
